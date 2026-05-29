@@ -1,7 +1,7 @@
 # Plan Object Type Definitions
 
-Status: Draft
-Last updated: 2026-05-28
+Status: Draft — amended by panel review 2026-05-29
+Last updated: 2026-05-29
 Related: [upload-modal-overhaul.md](./plans/upload-modal-overhaul.md)
 
 This document is the single source of truth for the data structures used by the upload modal. All components, the reducer, and both orchestrator functions (`buildUploadPlan`, `executeUploadPlan`) must conform to these types.
@@ -79,11 +79,14 @@ Each uploaded font gets one entry. Multiple file formats (TTF + WOFF2 etc.) for 
  * @property {'pending' | 'processing' | 'processed' | 'error'} status
  * @property {string|null} error - Processing error message, if any
  *
+ * --- Validation flags ---
+ * @property {boolean} [_idConflict] - True when documentId collides with another font in the batch
+ *
  * --- Parsed data (read-only, not editable) ---
- * @property {Object|null} fontKit - fontkit parsed font object (retained for Phase 2 metadata generation)
+ * @property {FontMetadataSnapshot|null} parsedMetadata - Extracted metadata from fontkit (see below). The raw fontkit object is NOT retained — only the fields needed for Phase 2 and UI display.
  * @property {number} glyphCount - Number of glyphs (informational, shown in review card)
  * @property {string[]} opentypeFeatures - List of OpenType feature tags (informational)
- * @property {Object|null} variationAxes - Variable font axes (informational, shown as badges)
+ * @property {VariationAxisMap|null} variationAxes - Variable font axes keyed by tag (e.g. { wght: { min, max, default }, ital: { ... } })
  */
 ```
 
@@ -106,6 +109,7 @@ The audit trail for every automated decision. Each sub-object tracks what the sy
  * @property {TitleDecision} title
  * @property {DocumentIdDecision} documentId
  * @property {WeightDecision} weight
+ * @property {WeightNameDecision} weightName
  * @property {StyleDecision} style
  * @property {SubfamilyDecision} subfamily
  * @property {ExistingDocumentDecision} existingDocument
@@ -113,7 +117,7 @@ The audit trail for every automated decision. Each sub-object tracks what the sy
 
 /**
  * @typedef {Object} TitleDecision
- * @property {'fontkit-fullName' | 'fontkit-preferredFamily' | 'filename' | 'user-override'} source - Where the active title came from
+ * @property {'fontkit-fullName' | 'fontkit-preferredFamily' | 'fontkit-preferredFamily+preferredSubfamily' | 'filename' | 'user-override'} source - Where the active title came from
  * @property {string} original - Raw fontkit.fullName before any processing
  * @property {string} processed - Title after formatting, abbreviation expansion, italic appending
  * @property {TitleAlternative[]} alternatives - Other possible titles from different metadata sources
@@ -144,26 +148,33 @@ The audit trail for every automated decision. Each sub-object tracks what the sy
 
 /**
  * @typedef {Object} StyleDecision
- * @property {'italic-angle' | 'name-contains-italic' | 'os2-fsSelection' | 'default-regular' | 'user-override'} source
+ * @property {'os2-fsSelection-italic' | 'head-macStyle-italic' | 'name-contains-italic' | 'italic-angle' | 'default-regular' | 'user-override'} source
  * @property {'Regular' | 'Italic'} detected
  * @property {string} reason - Human-readable explanation (e.g. "italicAngle = -12")
  * @property {'Regular' | 'Italic' | null} userOverride
  */
 
 /**
+ * @typedef {Object} WeightNameDecision
+ * @property {string} detected - System-detected weight name
+ * @property {string|null} userOverride
+ */
+
+/**
  * @typedef {Object} SubfamilyDecision
- * @property {string} detected - System-detected subfamily
+ * @property {'preferredFamily-subtraction' | 'fullName-subtraction' | 'default-empty' | 'cleared-by-opsz' | 'user-override'} source - How the value was derived
+ * @property {string} detected - System-detected subfamily (pre-clearing value if opsz cleared it)
  * @property {string|null} userOverride
  */
 
 /**
  * @typedef {Object} ExistingDocumentDecision
- * @property {'create' | 'update'} action - What will happen (system recommendation, or user choice)
  * @property {'use-exact' | 'use-candidate' | 'ambiguous' | 'create'} recommendation - System recommendation
  * @property {ExistingDocMatch|null} exact - Exact ID/slug match from Sanity (null if none)
  * @property {ExistingDocMatch[]} candidates - Content-match candidates from Sanity
- * @property {'create' | 'update' | null} userChoice - User's explicit override (null = accepted recommendation)
+ * @property {'create' | 'update' | null} userChoice - User's explicit override (null = accept recommendation)
  * @property {ExistingDocMatch|null} selectedCandidate - Which existing doc to update (if user chose 'update')
+ * @property {boolean} [lookupFailed] - True if the Sanity query failed (network/auth) — recommendation defaults to 'create'
  */
 
 /**
@@ -171,7 +182,7 @@ The audit trail for every automated decision. Each sub-object tracks what the sy
  * @property {string} _id - Sanity document ID
  * @property {string} title - Font title
  * @property {number} weight
- * @property {string} style
+ * @property {'Regular' | 'Italic'} style
  * @property {string} subfamily
  * @property {boolean} variableFont
  * @property {'id' | 'slug' | 'content'} matchType - How this match was found
@@ -221,7 +232,7 @@ The audit trail for every automated decision. Each sub-object tracks what the sy
  * @property {string|null} currentFile - Which format is currently uploading (e.g. "ttf", "woff2")
  * @property {number} filesComplete - How many file formats have been uploaded
  * @property {number} filesTotal - Total file formats to upload
- * @property {string|null} assetRef - Cached asset reference after successful upload (for idempotent retry)
+ * @property {Object.<string, string>} assetRefs - Map of file format → Sanity asset _id (e.g. { ttf: 'file-abc', woff2: 'file-def', css: 'file-ghi' }). Used for idempotent retry — skip re-upload of already-cached formats.
  * @property {string|null} error - Error message if status is 'error'
  */
 ```
@@ -241,8 +252,8 @@ Returned by `executeUploadPlan()`.
  * @property {number} failed - Number of fonts that failed
  * @property {number} skipped - Number of fonts skipped (status was 'error' from processing)
  * @property {FailedFont[]} failedFonts - Details of failures
- * @property {Object[]} fontRefs - Sanity references for newly created/updated fonts
- * @property {Object[]} variableRefs - Sanity references for variable fonts
+ * @property {SanityReference[]} fontRefs - Sanity references for newly created/updated fonts
+ * @property {SanityReference[]} variableRefs - Sanity references for variable fonts
  * @property {string|null} typefacePatchError - Error from the final typeface document patch, if any
  */
 
@@ -270,11 +281,24 @@ Returned by `executeUploadPlan()`.
  * @param {Object} params
  * @param {File[]} params.files - Sorted font files
  * @param {string} params.typefaceTitle - Parent typeface title
+ * @param {string} params.docId - Typeface document _id (used for scoping batch GROQ query)
  * @param {PlanSettings} params.settings
  * @param {Object} params.client - Sanity client (read-only usage)
  * @param {TypefaceStyles} params.stylesObject - Existing typeface styles
  * @param {ProcessingProgressCallback} params.onProgress
  * @returns {Promise<UploadPlan>}
+ */
+
+/**
+ * Resolves whether a font document already exists in Sanity.
+ *
+ * Resolution strategies (in priority order):
+ *   1. Exact _id match, draft _id match, or slug.current match
+ *   2. Content match by typefaceName + weightName + style + subfamily + variableFont
+ *
+ * @param {Object} font - { _id, typefaceName, weightName, style, subfamily, variableFont }
+ * @param {Object} client - Sanity client (parameterized queries only)
+ * @returns {Promise<{ exact: Object|null, candidates: Object[], recommendation: 'use-exact'|'use-candidate'|'ambiguous'|'create', lookupFailed?: boolean }>}
  */
 
 /**
@@ -344,12 +368,48 @@ This is the shape of `stylesObject` — the existing typeface document's `styles
  * @typedef {Object} TypefaceStyles
  * @property {SanityReference[]} [fonts] - Existing font references
  * @property {SanityReference[]} [variableFont] - Existing variable font references
- * @property {SubfamilyEntry[]} [subfamilies] - Existing subfamily groups
+ * @property {SubfamilyEntry[]} [subfamilies] - Existing subfamily groups (see SubfamilyEntry below)
  * @property {SanityReference[]} [collections] - Must be preserved (dot-path patch)
  * @property {SanityReference[]} [pairs] - Must be preserved (dot-path patch)
  * @property {SanityReference[]} [free] - Must be preserved (dot-path patch)
  * @property {Object[]} [displayStyles] - Must be preserved (dot-path patch)
  */
+
+/**
+ * @typedef {Object} SubfamilyEntry
+ * @property {string} _key
+ * @property {'object'} _type
+ * @property {string} title - Subfamily display name
+ * @property {SanityReference[]} fonts - Font references in this group
+ */
+
+/**
+ * @typedef {Object} FontMetadataSnapshot
+ * @property {string} postscriptName
+ * @property {string} fullName
+ * @property {string} familyName
+ * @property {string} subfamilyName
+ * @property {string} copyright
+ * @property {string} version
+ * @property {number} unitsPerEm
+ * @property {number} ascender
+ * @property {number} descender
+ * @property {number} lineGap
+ * @property {number} italicAngle
+ * @property {number} capHeight
+ * @property {number} xHeight
+ * @property {Object} boundingBox
+ */
+
+/**
+ * @typedef {Object} VariationAxis
+ * @property {number} min
+ * @property {number} max
+ * @property {number} default
+ * @property {string} [name]
+ */
+
+/** @typedef {Object.<string, VariationAxis>} VariationAxisMap */
 
 /**
  * @typedef {Object} SanityReference
@@ -401,8 +461,37 @@ export const EXECUTION_STATUS = {
   GENERATING_CSS: 'generating-css',
   GENERATING_METADATA: 'generating-metadata',
   CREATING_DOCUMENT: 'creating-document',
+  PATCHING_TYPEFACE: 'patching-typeface',
   COMPLETE: 'complete',
   ERROR: 'error',
   SKIPPED: 'skipped',
 };
+
+/** Processing-owned fields — only written by ADD_PROCESSED_FONT, never by user edit actions */
+export const PROCESSING_OWNED_FIELDS = ['parsedMetadata', 'glyphCount', 'opentypeFeatures', 'variationAxes', 'status'];
+
+/** User-owned fields — only written by user edit actions via decisions.*.userOverride */
+export const USER_OWNED_FIELDS = ['title', 'documentId', 'weight', 'weightName', 'style', 'subfamily'];
 ```
+
+---
+
+## Review Amendments
+
+### Resolved
+- **C5:** `assetRef: string|null` → `assetRefs: Object.<string, string>` (per-format map for idempotent retry)
+- **C9:** Replaced `fontKit: Object|null` with `parsedMetadata: FontMetadataSnapshot|null`. Raw fontkit object is NOT retained in plan state. Worker extracts needed fields and returns a plain object. Re-parse from `File` handle in Phase 2 only if needed.
+- **M2:** Added `PATCHING_TYPEFACE` to `EXECUTION_STATUS` enum
+- **M3:** Added `source` field to `SubfamilyDecision`
+- **M4:** Added `WeightNameDecision` to `FontDecisions`
+- **M5:** Removed redundant `action` field from `ExistingDocumentDecision`. `executeUploadPlan` derives action: if `userChoice` is set, use it; else derive from `recommendation` (use-exact/use-candidate → update, ambiguous/create → create).
+- **M18:** Added `docId` param to `buildUploadPlan`
+- **M19:** Added `SubfamilyEntry` typedef
+- **M20:** Added `PROCESSING_OWNED_FIELDS` and `USER_OWNED_FIELDS` const arrays
+- **M25:** Added `resolveExistingFont` function signature
+
+### Open for implementation
+- **C6:** `SET_FONT_DOCUMENT_ID` must validate ID is font-appropriate (e.g., starts with expected prefix or passes a regex). `executeUploadPlan` Phase 2 must verify `_type === 'font'` before `createOrReplace`.
+- Event types (`ProcessingProgressEvent`, `ExecutionProgressEvent`) use optional fields rather than proper discriminated unions. During TS migration, convert to tagged union types with per-variant required fields.
+- `DocumentIdDecision` should gain an `alternatives: string[]` field for ID suggestions when the derived ID conflicts. Deferred to implementation.
+- Consider branded types (`TempId`, `SanityDocumentId`, `SubfamilyKey`) during TS migration to prevent cross-map key confusion.

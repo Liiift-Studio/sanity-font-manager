@@ -1,7 +1,7 @@
 # Accessibility & Interaction Specification
 
-Status: Draft
-Last updated: 2026-05-28
+Status: Draft — amended by panel review 2026-05-29
+Last updated: 2026-05-29
 Related: [upload-modal-overhaul.md](./plans/upload-modal-overhaul.md), [reducer-action-catalog.md](./reducer-action-catalog.md)
 
 ---
@@ -389,3 +389,39 @@ Sanity UI `Tooltip` shows on hover. For keyboard accessibility:
 | Upload progress | Upload status | `polite` | "Uploading {N} of {total}..." |
 | Upload complete | Summary | `assertive` | "Upload complete. {created} created, {updated} updated, {failed} failed." |
 | Upload error | Upload status | `assertive` | "{font title} failed: {error}" |
+
+---
+
+## Review Amendments (panel review 2026-05-29)
+
+### Critical corrections
+- **M11:** Escape during upload must NOT be fully suppressed — add a "Stop Upload" button (visible, focusable, keyboard-accessible) that gracefully stops after the current font completes. Escape triggers the stop action. This resolves the WCAG 2.1.2 (No Keyboard Trap) violation.
+- **M26:** Disclosure pattern: move `<button>` out of `<h3>`. Use `aria-labelledby` to associate heading text as button's accessible name. Current button-inside-heading pattern causes heading role to subsume button in some screen readers.
+- The `<fieldset>` + `role="radiogroup"` in existing document resolution is redundant. Use `<fieldset>` + `<legend>` only — remove the inner `role="radiogroup"` div. Add `id` to `<legend>` if `aria-labelledby` is needed elsewhere.
+- The editable fields example has a structural error (two `<input>` elements). Should be one `<input>` with both `id` and `aria-describedby` attributes.
+- Error cards: `role="alert"` inside a `hidden` (collapsed) card will not be announced. Move error announcement to a separate live region outside the card, or keep error cards expanded by default.
+
+### Focus management fixes
+- Step 1→2 transition: focus target should be the processing status `<div>` which needs `tabindex="-1"` to be programmatically focusable.
+- Step 2→3 transition: the "Upload to Sanity" button will have unmounted. Focus the first element in the Step 3 execution view (the global progress heading).
+- Post-completion: use `useEffect` to set focus after `UploadSummary` mounts, not in the same tick as the state change.
+- Modal close (non-upload): save a ref to the trigger element before opening and restore focus on close (standard ARIA dialog pattern).
+- Validation failure: move focus to the first error card (not just scroll), and announce a summary: "{N} validation errors found."
+- Roving tabindex: first card header gets `tabindex="0"` on initial render. When a focused card is removed by filter, move `tabindex="0"` to the nearest visible card.
+
+### Announcement fixes
+- Step transitions need a dedicated `aria-live="assertive"` live region (the step indicator `<nav>` has no `aria-live`). Add a visually-hidden div.
+- "All processing complete" announcement: use a separate `role="alert"` element injected on completion, not the same `aria-live="polite"` region used for per-file progress. Politeness cannot be switched at runtime.
+- Bulk action live region updates should be debounced (300ms) when driven by search/filter keystrokes.
+- `role="status"` already implies `aria-live="polite"` — remove explicit `aria-live="polite"` to avoid double-announcement risk.
+- Upload complete: use `role="alert"` for the summary announcement, not `role="status"` with `aria-live="assertive"` (conflicting implicit vs explicit politeness).
+- Per-font "Reset to suggestion" buttons need font name in accessible name: "Reset Halyard Display Bold to suggestion".
+- Elapsed time counter must be outside the `aria-live` region to prevent per-second announcements.
+
+### Other
+- `<nav>` around step indicator is semantically wrong (implies interactive navigation, but steps are forward-only status indicators). Use `<div role="group" aria-label="Upload steps">` instead.
+- `aria-current="step"` has inconsistent AT support. Add visible text "(current)" as fallback.
+- `SubfamilyOrganizer` section needs keyboard interaction spec: collapse/expand trigger, focus sequence for add/remove buttons.
+- `Autocomplete` for manual document linking needs combobox pattern spec or explicit note that Sanity UI's `Autocomplete` provides baseline a11y.
+- Tooltip Escape must `stopPropagation` to prevent the modal close handler from also firing.
+- Arrow keys in roving tabindex only active when focus is on a card header element. When focus is inside an expanded card's form controls, arrow keys behave normally for that input type.

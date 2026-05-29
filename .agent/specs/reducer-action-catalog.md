@@ -1,10 +1,12 @@
 # Reducer Action Catalog
 
-Status: Draft
-Last updated: 2026-05-28
+Status: Draft — amended by panel review 2026-05-29
+Last updated: 2026-05-29
 Related: [plan-types.md](./plan-types.md), [upload-modal-overhaul.md](./plans/upload-modal-overhaul.md)
 
 Complete enumeration of all `useReducer` action types with their payloads and state transitions.
+
+> **Terminology note (panel review):** "Phase" = technical execution phase (1=plan, 2=execute). "Step" = modal UI step (1-3). `plan.phase` = state machine enum field. These are three distinct concepts.
 
 ---
 
@@ -50,7 +52,9 @@ Updates global upload settings.
 ```
 
 **State change:** `plan.settings = { ...plan.settings, ...action.settings }`
-**Guard:** Only allowed when `plan.phase` is `idle` or `reviewing`.
+**Guard:** Only allowed when `plan.phase` is `idle`. Once processing starts, settings are locked and shown as read-only in the review step.
+
+> **Panel review correction:** Was `idle` or `reviewing`. Changed to `idle` only because changing settings (e.g., `preserveFileNames`) during review would invalidate already-processed font decisions with no reconciliation mechanism.
 
 ---
 
@@ -184,7 +188,11 @@ These are dispatched by UI components when the user modifies font metadata.
  */
 ```
 
-**State change:** `plan.fonts[tempId].weightName = action.weightName`
+**State change:**
+- `plan.fonts[tempId].weightName = action.weightName`
+- `plan.fonts[tempId].decisions.weightName.userOverride = action.weightName`
+
+> **Panel review fix:** Was missing the `decisions` audit trail write. Without it, `ACCEPT_ALL_SUGGESTIONS` and `RESET_FONT_TO_SUGGESTIONS` cannot revert weightName changes.
 
 #### `SET_FONT_STYLE`
 
@@ -229,14 +237,13 @@ Sets create vs. update decision for existing document resolution.
  * @type {{
  *   type: 'SET_FONT_ACTION',
  *   tempId: string,
- *   action: 'create' | 'update'
+ *   decision: 'create' | 'update'
  * }}
  */
 ```
 
 **State change:**
-- `plan.fonts[tempId].decisions.existingDocument.action = action.action`
-- `plan.fonts[tempId].decisions.existingDocument.userChoice = action.action`
+- `plan.fonts[tempId].decisions.existingDocument.userChoice = action.decision`
 - If switching to `'create'`: clears `selectedCandidate`
 
 #### `SET_FONT_CANDIDATE`
@@ -407,3 +414,20 @@ These operate on the separate `ExecutionState` (not the plan reducer).
 | `SET_EXECUTION_STATUS` | Execution | executeUploadPlan callback | Execute |
 | `SET_FONT_EXECUTION_PROGRESS` | Execution | executeUploadPlan callback | Execute |
 | `SET_EXECUTION_ERROR` | Execution | executeUploadPlan callback | Execute |
+
+---
+
+## Review Amendments
+
+### Resolved
+- **M4:** `SET_FONT_WEIGHT_NAME` now writes to `decisions.weightName.userOverride`
+- **m11:** `SET_FONT_ACTION` payload field renamed from `action` to `decision` to avoid `action.action` naming collision
+- **m12:** `SET_PROCESSING_PROGRESS` removed — progress is derived from font statuses via `ADD_PROCESSED_FONT` and `SET_PROCESSING_ERROR`. No separate wholesale overwrite needed.
+- **M17:** `SET_SETTINGS` guard tightened to `idle` only (was `idle` or `reviewing`)
+
+### Open for implementation
+- **M6:** Consider `ADD_PROCESSED_FONTS_BATCH` action for processing phase. `buildUploadPlan` buffers 5-10 results and dispatches in batches to reduce re-render count from 200 to ~20-40. Individual `ADD_PROCESSED_FONT` retained for streaming UX but debounced to max 1 dispatch per 100ms.
+- **M10:** Rename `ACCEPT_ALL_SUGGESTIONS` to `ACCEPT_VISIBLE_SUGGESTIONS`. Button label: "Accept Suggestions for {N} Visible Fonts". Component computes `scope` array from current filter state before dispatch.
+- **C6:** `SET_FONT_DOCUMENT_ID` reducer should validate ID format (e.g., reject IDs that match known non-font document patterns). `executeUploadPlan` must verify `_type === 'font'` before `createOrReplace`.
+- `SET_FONT_SUBFAMILY` and `MOVE_FONT_TO_SUBFAMILY` have overlapping semantics. Consider merging into one action or clearly documenting when each is dispatched (card dropdown vs. organizer section).
+- `SET_FONT_SUBFAMILY` and `MOVE_FONT_TO_SUBFAMILY` should guard against duplicate `tempId` in `fontIds` arrays to prevent double-rendering from rapid dispatch.

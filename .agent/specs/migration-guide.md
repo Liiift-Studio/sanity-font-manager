@@ -1,7 +1,7 @@
 # Migration Guide: v2.x → v3.0 (Upload Modal Overhaul)
 
-Status: Draft
-Last updated: 2026-05-28
+Status: Draft — amended by panel review 2026-05-29
+Last updated: 2026-05-29
 Related: [upload-modal-overhaul.md](./plans/upload-modal-overhaul.md)
 
 ---
@@ -14,7 +14,7 @@ The upload modal overhaul is a **semver major** bump (v2.x → v3.0) because it 
 |---|---|
 | `processFontFiles()` signature changed | Returns additional `decisions` audit trail data |
 | `uploadFontFiles()` split into `buildUploadPlan()` + `executeUploadPlan()` | Old function removed |
-| `updateTypefaceDocument()` uses dot-path patch keys | Behavior change (fixes data loss), signature unchanged |
+| `updateTypefaceDocument()` accepts options object + uses dot-path patch keys | Signature change (positional → options object) + behavior fix (dot-path preserves siblings) |
 | `resolveExistingFont()` added | New export, no breakage |
 | `resolveWeight()` replaces inline `determineWeight()` | New export, old function still works but is deprecated |
 
@@ -152,7 +152,7 @@ The following exports are preserved in v3.0 as deprecated wrappers. They will be
 | Deprecated Export | Replacement | Wrapper behavior |
 |---|---|---|
 | `determineWeight(font, weightName)` | `resolveWeight(usWeightClass, weightName)` | Extracts `font['OS/2'].usWeightClass` and calls `resolveWeight` |
-| `uploadFontFiles(...)` | `buildUploadPlan()` + `executeUploadPlan()` | Calls both sequentially with auto-accepted suggestions (no review step) |
+| `uploadFontFiles(...)` | `buildUploadPlan()` + `executeUploadPlan()` | Calls both sequentially with auto-accepted suggestions (no review step). For `ambiguous` recommendations: defaults to `create` and logs warning. |
 
 Deprecated functions log `console.warn('Deprecated: ...')` on first call.
 
@@ -169,6 +169,7 @@ Deprecated functions log `console.warn('Deprecated: ...')` on first call.
 | `FONT_STATUS` | `utils/planTypes.js` | Status enum constants |
 | `PLAN_PHASE` | `utils/planTypes.js` | Phase enum constants |
 | `RECOMMENDATION` | `utils/planTypes.js` | Document resolution recommendation enum |
+| `EXECUTION_STATUS` | `utils/planTypes.js` | Execution progress status enum |
 
 ---
 

@@ -1,7 +1,7 @@
 # Upload Modal Overhaul — Spec & Design
 
-Status: Draft — post panel review, critical fixes applied.
-Last updated: 2026-05-28
+Status: Draft — amended by 13-engineer panel review 2026-05-29
+Last updated: 2026-05-29
 
 ## Related Specs
 
@@ -329,7 +329,7 @@ See [reducer-action-catalog.md](../reducer-action-catalog.md) for the complete l
 
 ### Missing from Sanity UI (need minimal custom CSS)
 
-- **Progress bar**: Sanity UI has no progress bar component. Use a `Box` with `style={{ width: `${percent}%`, height: 4, background: 'var(--card-focus-ring-color)', transition: 'width 0.3s' }}`.
+- **Progress bar**: Sanity UI has no progress bar component. Use a fixed-width `Box` with `transform: scaleX()` for compositor-safe animation (NOT `width` transitions, which cause layout thrash). Example: `style={{ transform: `scaleX(${percent / 100})`, transformOrigin: 'left', height: 4, background: 'var(--card-badge-positive-bg-color)' }}`.
 - **Step indicator**: No stepper component. Build with `Flex` + `Badge` or numbered `Box` elements with active/inactive states.
 - **Drag-and-drop reordering** (for subfamily organization): Out of scope for v1 — use `Select` dropdowns to reassign instead.
 
@@ -426,11 +426,11 @@ The port plan at `.agent/specs/plans/mckl-fixes-port.md` must land first. It int
 ### Phase 2: Modal Shell
 - Create `UploadModal.jsx` with step state machine
 - Implement Step 1 (settings + files) — mostly moving existing UI into the modal
-- Implement Step 4 (execution progress) — mostly moving existing progress UI
+- Implement Step 3 (execution progress) — mostly moving existing progress UI
 - Wire up: button in `BatchUploadFonts.jsx` opens modal, modal calls plan/execute
 
 ### Phase 3: Review UI
-- Implement Step 3 (`UploadStep3Review.jsx`)
+- Implement Step 2 (`UploadStep2ReviewableProcessing.jsx`)
 - Build `FontReviewCard.jsx` with all editable fields
 - Build `ExistingDocumentResolver.jsx`
 - Build `SubfamilyOrganizer.jsx`
@@ -462,8 +462,8 @@ The port plan at `.agent/specs/plans/mckl-fixes-port.md` must land first. It int
 | Undo in review | "Reset to suggestion" per-field and per-card. No undo history. | Store original computed value alongside userOverride — simple and sufficient. |
 | Utilities section | Stays outside the modal as-is. No change needed. | Different UX concern — utilities operate on already-uploaded fonts. |
 | Steps: 3 or 4? | 3 steps. Processing and review are merged (Step 2). | Users edit as fonts appear — no dead waiting time. |
-| Execution state location | Separate from plan (second reducer or useRef). | Prevents progress ticks from re-rendering review UI. |
-| Back navigation | No. Forward-only. | Adding files after processing started complicates state massively. |
+| Execution state location | Separate `useReducer` mounted in `UploadStep3Execute` (not useRef — need re-renders for progress UI). Isolated from review UI because Step 3 component only mounts during execution. | Prevents progress ticks from re-rendering review UI. |
+| Back navigation / Cancel | Forward-only once uploading (Step 3). But add "Cancel Processing" in Step 2 that aborts remaining files and returns to Step 1 with file list intact. | Users who dropped wrong files need an escape hatch before committing. |
 | Breaking change strategy | Semver major (v3.0). Old functions preserved as deprecated wrappers. Migration guide for consumers. | See [migration-guide.md](../migration-guide.md). |
 
 ---
@@ -480,3 +480,30 @@ The port plan at `.agent/specs/plans/mckl-fixes-port.md` must land first. It int
 - Plan persistence (save/load draft plans between sessions)
 - Full TypeScript migration (JSDoc typedefs for now, TS migration is separate effort)
 - Subpath exports / code splitting (desirable but separate effort — track in bundle optimization work)
+
+---
+
+## Review Amendments (panel review 2026-05-29)
+
+### Build configuration (must resolve before implementation)
+- **C10:** Web Worker needs a separate entry point in tsup config. Define bundling strategy for CJS+ESM. CJS cannot use `import.meta.url` — may need inline Worker or conditional Worker detection with main-thread fallback.
+- **C11:** Enable `splitting: true` in tsup.config.ts for `React.lazy()` to produce actual code splits.
+- **C12:** Replace `nanoid` v5 (ESM-only) with CJS-compatible alternative or `crypto.randomUUID()`.
+- **M14:** Add `fontkit` to `external` in tsup config. Consumers already have it as transitive dep. Saves ~200KB.
+- **M15:** Set `dts: true` in tsup config so JSDoc typedefs produce `.d.ts` files for TS consumers.
+- **m14:** Move `buffer` polyfill to peerDependencies or externalize to avoid double-bundling in Vite.
+
+### Performance (implement during Phase 5: Polish)
+- **M7:** All callbacks passed to `React.memo`-wrapped `FontReviewCard` must be memoized via `useCallback` with `[dispatch]` dependency.
+- **M8:** Add virtualization (react-window or react-virtual) for the card list when font count exceeds 50. Mount only visible cards + buffer.
+- **M22:** Web Worker must extract only needed metadata and return a `FontMetadataSnapshot` plain object. The raw fontkit object is NOT posted back via structured clone.
+- **m13:** Progress bar uses `transform: scaleX()` (compositor-safe), not `width` transitions (layout thrash).
+
+### UX (implement during Phase 3-5)
+- **M9:** Add "Cancel Processing" button in Step 2 that aborts remaining files and returns to Step 1.
+- **M10:** Rename "Accept All Suggestions" to "Accept Suggestions for {N} Visible Fonts" with scoped behavior.
+- Post-completion summary should include a link/button to open the typeface document in the Studio.
+- Cards start collapsed — add inline validation indicators (warning icon in header) so users can spot problems without expanding every card.
+
+### Deprecated wrapper (M15 from migration guide)
+The deprecated `uploadFontFiles` wrapper must define behavior for `ambiguous` recommendation: default to `create` (safe default). Log warning: "Ambiguous match for <title> — creating new document. Use the upload modal for manual resolution."

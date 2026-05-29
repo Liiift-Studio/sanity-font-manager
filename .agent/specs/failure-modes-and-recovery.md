@@ -1,7 +1,7 @@
 # Failure Modes & Recovery Strategy
 
-Status: Draft
-Last updated: 2026-05-28
+Status: Draft — amended by panel review 2026-05-29
+Last updated: 2026-05-29
 Related: [upload-modal-overhaul.md](./plans/upload-modal-overhaul.md), [plan-types.md](./plan-types.md)
 
 ---
@@ -133,7 +133,7 @@ Every failure should leave the system in a **known, recoverable state**. The use
 
 **Behavior:**
 - Upload concurrency pool: max 3 concurrent uploads (configurable)
-- On 429 response: exponential backoff (1s, 2s, 4s) with max 3 retries per request
+- On 429 response: exponential backoff (1s, 2s, 4s) **with ±25% random jitter** to prevent synchronized retry storms across concurrent slots
 - After 3 retries: treat as failed, move to next font
 
 **Implementation:**
@@ -141,6 +141,13 @@ Every failure should leave the system in a **known, recoverable state**. The use
 const CONCURRENCY_LIMIT = 3;
 const MAX_RETRIES = 3;
 const BASE_BACKOFF_MS = 1000;
+const JITTER_FACTOR = 0.25; // ±25%
+
+function backoffWithJitter(attempt) {
+  const base = BASE_BACKOFF_MS * Math.pow(2, attempt);
+  const jitter = base * JITTER_FACTOR * (Math.random() * 2 - 1);
+  return base + jitter;
+}
 ```
 
 ### F2.6 — Tab close / navigation during upload
@@ -181,14 +188,14 @@ On retry:
 - Step 4: Re-run (fast, no network)
 - Step 5: Re-run with `createOrReplace` (idempotent by design)
 
-The `FontExecutionProgress.assetRef` field is actually a map:
+The `FontExecutionProgress.assetRefs` field is a per-format map:
 
 ```js
 /** @type {Object.<string, string>} - Map of file type → Sanity asset _id */
 assetRefs: {}  // e.g. { ttf: 'file-abc123', woff2: 'file-def456', css: 'file-ghi789' }
 ```
 
-**Update to plan-types.md:** Change `assetRef: string|null` to `assetRefs: Object.<string, string>` in `FontExecutionProgress`.
+> **Resolved:** `plan-types.md` has been updated to use `assetRefs: Object.<string, string>` (was `assetRef: string|null`).
 
 ---
 

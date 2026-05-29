@@ -1,7 +1,7 @@
 # Weight Classification Reference
 
-Status: Draft
-Last updated: 2026-05-28
+Status: Draft — amended by panel review 2026-05-29
+Last updated: 2026-05-29
 Related: [plan-types.md](./plan-types.md), [font-metadata-field-mapping.md](./font-metadata-field-mapping.md)
 
 Single source of truth for all weight keyword → numeric value mappings. Replaces the divergent lists in `processFontFiles.js:determineWeight()` and `parseVariableFontInstances.js:weightTerms`.
@@ -72,6 +72,12 @@ export function resolveWeight(usWeightClass, weightName) {
   if (/extra\s*light|ultra\s*light/.test(wn)) return 200;
   if (/extra\s*thin/.test(wn)) return 100;
 
+  // Numeric weight suffix notation (W1-W9, common in Linotype/URW/Monotype fonts)
+  if (/\bw[1-9]\b/i.test(wn)) {
+    const match = wn.match(/\bw([1-9])\b/i);
+    if (match) return parseInt(match[1], 10) * 100;
+  }
+
   // Single-word patterns (order matters — test before substrings)
   if (/\bhairline\b/.test(wn)) return 100;
   if (/\bthin\b/.test(wn)) return 200;
@@ -81,17 +87,19 @@ export function resolveWeight(usWeightClass, weightName) {
   if (/\bmedium\b/.test(wn)) return 500;
   if (/\bdemi\b/.test(wn)) return 600;
   if (/\bbold\b/.test(wn)) return 700;
-  if (/\bheavy\b|\bblack\b|\bnero\b|\bnerissimo\b/.test(wn)) return 900;
+  if (/\bheavy\b|\bblack\b/.test(wn)) return 900;
   if (/\bultra\b|\bfat\b|\bposter\b/.test(wn)) return 900;
 
-  // Non-English weight names
+  // Non-English weight names (most specific first)
+  if (/\bextrafett\b/.test(wn)) return 800;
+  if (/\bdreiviertelfett\b/.test(wn)) return 600;
+  if (/\bhalbfett\b/.test(wn)) return 600;
+  if (/\bfett\b|\bgras\b/.test(wn)) return 700;
   if (/\bmager\b|\bmaigre\b|\bchiaro\b|\bleicht\b/.test(wn)) return 300;
   if (/\bstark\b|\bkräftig\b/.test(wn)) return 500;
   if (/\bviertelfett\b/.test(wn)) return 500;
-  if (/\bhalbfett\b/.test(wn)) return 600;
-  if (/\bdreiviertelfett\b/.test(wn)) return 700;
-  if (/\bfett\b|\bextrafett\b|\bgras\b|\bneretto\b/.test(wn)) return 700;
   if (/\bnero\b|\bnerissimo\b/.test(wn)) return 900;
+  if (/\bneretto\b/.test(wn)) return 700;
   if (/\bbuch\b/.test(wn)) return 300;
   if (/\bdark\b|\bthick\b/.test(wn)) return 700;
 
@@ -108,6 +116,13 @@ export function resolveWeight(usWeightClass, weightName) {
 4. **"ExtraBlack" returns 950** (was not handled)
 5. **Multi-word patterns tested before single-word** to prevent false matches
 6. **Word boundary `\b` used** to prevent substring matches ("Midas Lt" won't match "Light")
+
+> **Corrections from panel review:**
+> 7. **"Dreiviertelfett" → 600** (was 700 — German convention for ¾ bold, between SemiBold and Bold)
+> 8. **"Extrafett" → 800** (was 700 — "extra bold" in German, separate pattern before `fett` catch-all)
+> 9. **Removed duplicate `nero`/`nerissimo` regex** (was at lines 84 and 94, both returning 900)
+> 10. **Added W1-W9 numeric weight suffix notation** (common in Linotype/URW/Monotype: "HelveticaNeueW01-45Lt")
+> 11. **`neretto` separated from `nero`** — `neretto` = 700 (bold-ish), `nero` = 900 (black)
 
 ---
 
@@ -152,3 +167,10 @@ These short abbreviations can match legitimate word fragments:
 | Hl | "Hl" in names like "Schulbuch Hl" | Medium |
 
 Mitigation: The review UI shows the original value alongside the expanded value, so users can catch and revert false expansions.
+
+---
+
+## Review Amendments
+
+### Unresolved: parseVariableFontInstances uses old weightTerms
+The 6-strategy VF instance matching system in `parseVariableFontInstances.js` still uses the old inline `weightTerms` array. It should be updated to use `resolveWeight()` to ensure consistency. Currently deferred as "not exposed in review UI for v1" but the inconsistency will affect production VF instance→static font matching.

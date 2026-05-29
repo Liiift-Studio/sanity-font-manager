@@ -1,7 +1,7 @@
 # Font Upload Testing Strategy
 
-Status: Draft
-Last updated: 2026-05-28
+Status: Draft — amended by panel review 2026-05-29
+Last updated: 2026-05-29
 Related: [upload-modal-overhaul.md](./plans/upload-modal-overhaul.md), [plan-types.md](./plan-types.md)
 
 ---
@@ -26,8 +26,11 @@ Related: [upload-modal-overhaul.md](./plans/upload-modal-overhaul.md), [plan-typ
 | VF detection | Font with `variationAxes` having `min !== max` → `variableFont: true` | `entry.variableFont === true` |
 | VF degenerate axes | Font with axes where `min === max` → `variableFont: false` | Not classified as VF |
 | Subfamily assignment | "Halyard Display Bold" with title "Halyard" → subfamily "Display" | `entry.subfamily === 'Display'` |
-| VF subfamily preserved | VF with optical-size axis → subfamily not cleared | `entry.subfamily` retained |
-| VF subfamily cleared | VF without optical-size axis → subfamily cleared | `entry.subfamily === ''` |
+| VF subfamily cleared (opsz) | VF WITH optical-size axis → subfamily cleared | `entry.subfamily === ''` |
+| VF subfamily preserved (no opsz) | VF WITHOUT optical-size axis, but with detected subfamily → preserved | `entry.subfamily === 'Display'` |
+| VF subfamily empty (no opsz, no sub) | VF WITHOUT optical-size axis, no detected subfamily → stays empty | `entry.subfamily === ''` |
+| VF degenerate opsz | VF with `opsz.min === opsz.max` + detected subfamily → preserved (degenerate opsz ignored) | `entry.subfamily` retained |
+| VF slnt + ital coexistence | VF with both `slnt` and `ital` axes → `slnt` takes priority for CSS | CSS output uses `oblique` range, not `italic` |
 | preserveFileNames on | Filename used for title/ID derivation | `entry.title` derived from filename, `decisions.title.source === 'filename'` |
 | preserveFileNames off | fontkit fullName used for title derivation | `decisions.title.source === 'fontkit-fullName'` |
 | preserveShortenedNames on | "Bd" stays "Bd" | Title contains "Bd", not "Bold" |
@@ -48,11 +51,14 @@ Related: [upload-modal-overhaul.md](./plans/upload-modal-overhaul.md), [plan-typ
 | Skip error fonts | Font with `status: 'error'` → skipped | `result.skipped === 1`, no upload attempted |
 | Asset upload failure | `client.assets.upload` throws → font marked failed | `result.failed === 1`, `failedFonts[0].failedAt === 'asset-upload'` |
 | CSS generation failure | CSS gen throws → font marked failed | `failedFonts[0].failedAt === 'css-generation'` |
-| Idempotent retry | Font with cached `assetRef` → asset upload skipped | `client.assets.upload` not called for that font |
+| Idempotent retry | Font with cached `assetRefs` (per-format map) → asset upload skipped for cached formats | `client.assets.upload` not called for formats with existing refs |
 | Typeface patch | All fonts done → typeface document patched | `client.patch(docId).set()` called with dot-path keys |
 | Typeface patch preserves siblings | Patch uses `'styles.fonts'` not `styles: { fonts }` | Patch object has dot-path keys |
 | Partial failure + patch | 1 of 3 fails → typeface patch includes 2 refs | `fontRefs.length === 2` |
-| Concurrency control | 10 fonts → max 5 concurrent uploads | Assert upload concurrency via mock timing |
+| Concurrency control | 10 fonts → max 3 concurrent uploads | Assert upload concurrency via mock timing |
+| Metadata generation failure | metadata gen throws → font marked failed | `failedFonts[0].failedAt === 'metadata-generation'` |
+| Typeface patch failure | All fonts succeed but `client.patch().commit()` throws | `result.typefacePatchError` is set, `result.success === false` |
+| 429 exponential backoff | `client.assets.upload` returns 429 → retries with backoff+jitter, max 3 attempts | Timing assertions on retry intervals |
 | Progress callbacks | Each step fires correct event type | `onProgress` called with `font-upload-start`, `file-uploaded`, etc. |
 
 ---
@@ -248,7 +254,52 @@ Validate the plan object shape at the boundary between producer and consumer:
 Create `src/tests/fixtures/`:
 - `mock-fontkit-regular.js` — Mock fontkit object for a regular weight font
 - `mock-fontkit-bold-italic.js` — Mock fontkit object for bold italic
-- `mock-fontkit-variable.js` — Mock fontkit object for variable font with wght + ital axes
+- `mock-fontkit-variable-wght-ital.js` — VF with wght + ital axes (real variation ranges)
+- `mock-fontkit-variable-opsz.js` — VF with opsz axis (for subfamily clearing tests)
+- `mock-fontkit-variable-slnt-ital.js` — VF with both slnt and ital axes (priority test)
+- `mock-fontkit-variable-degenerate.js` — VF with degenerate axes (min === max)
+- `mock-fontkit-variable-no-opsz-with-subfamily.js` — VF without opsz but with detected subfamily
 - `mock-sanity-client.js` — Mock Sanity client with configurable fetch/patch/create responses
 - `mock-plan.js` — Factory function to create valid UploadPlan objects for testing
 - `small-test.ttf` — Minimal valid TTF file for integration tests (can use a freely licensed font)
+- `small-test.woff2` — Minimal WOFF2 with stripped name records (for no-companion fallback test)
+
+---
+
+## 9. Execution Reducer Tests (panel review addition)
+
+### `executionReducer.test.js` (new)
+
+| Case | Description | Asserts |
+|---|---|---|
+| SET_EXECUTION_STATUS idle→uploading | Valid transition | `status === 'uploading'` |
+| SET_EXECUTION_STATUS uploading→patching-typeface | Valid transition | `status === 'patching-typeface'` |
+| SET_EXECUTION_STATUS uploading→complete | Valid transition | `status === 'complete'` |
+| SET_EXECUTION_STATUS uploading→error | Valid transition | `status === 'error'` |
+| SET_FONT_EXECUTION_PROGRESS | Update per-font progress | `progress[tempId]` merged correctly |
+| SET_FONT_EXECUTION_PROGRESS assetRefs merge | Cached asset refs accumulate across formats | `progress[tempId].assetRefs` has both `ttf` and `woff2` keys |
+| SET_EXECUTION_ERROR | Sets global error | `error` set, `status === 'error'` |
+
+---
+
+## 10. Additional Test Gaps (panel review additions)
+
+Tests added to fill coverage gaps identified by the panel:
+
+| Location | Case | Description |
+|---|---|---|
+| `resolveExistingFont.test.js` | lookupFailed flag | Network error sets `lookupFailed: true` on decision |
+| `resolveExistingFont.test.js` | VF title suffix matching | "Halyard Bold VF" matches existing "Halyard Bold" |
+| `resolveExistingFont.test.js` | Truncated result set | >200 results logged as warning, matching proceeds on truncated set |
+| `resolveWeight.test.js` (new) | ExtraBlack → 950 | Non-standard weight boundary |
+| `resolveWeight.test.js` | Non-English: mager → 300, halbfett → 600, extrafett → 800 | German weight names |
+| `resolveWeight.test.js` | W1-W9 notation | "HelveticaNeueW07" → 700 |
+| `planReducer.test.js` | SET_SETTINGS guard during processing | Dispatch during `processing` phase → no-op |
+| `planReducer.test.js` | SET_FONT_TITLE auto-derives documentId | Title change updates documentId unless documentId has own override |
+| `planReducer.test.js` | CREATE_SUBFAMILY_GROUP | Adds empty group |
+| `planReducer.test.js` | REMOVE_SUBFAMILY_GROUP guard | Blocked when fonts remain |
+| `planReducer.test.js` | REMOVE_FONT | Deletes from fonts map and subfamily group |
+| `planReducer.test.js` | ADD_PROCESSED_FONT merge: field-level | Assert processing-owned fields updated, user overrides preserved |
+| `FontReviewCard.test.jsx` | VF weight outside axis range warning | Weight 1000 on VF with wght 100-900 → warning shown |
+| `UploadModal.test.jsx` | beforeunload registration | Upload start registers handler, completion deregisters |
+| `upload-pipeline.test.js` | Retry re-uses cached assetRefs | Successful retry does NOT re-upload already-cached assets |
