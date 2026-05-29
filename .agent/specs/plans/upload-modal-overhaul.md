@@ -16,6 +16,7 @@ Last updated: 2026-05-29
 | [variable-font-axis-handling.md](../variable-font-axis-handling.md) | Axis semantics, subfamily interaction, ital/slnt/opsz |
 | [accessibility-interaction-spec.md](../accessibility-interaction-spec.md) | Focus management, ARIA, keyboard nav, screen reader |
 | [migration-guide.md](../migration-guide.md) | v2→v3 breaking changes, consumer migration |
+| [fontkit-to-libfont-migration.md](../fontkit-to-libfont-migration.md) | Font parser migration: fontkit → lib-font |
 | [mckl-fixes-port.md](./mckl-fixes-port.md) | Prerequisite port plan |
 
 ## Problem Statement
