@@ -68,6 +68,8 @@ export {
 	createFontDecisions,
 	createEmptyPlan,
 } from './utils/planTypes.js';
+export { planReducer } from './utils/planReducer.js';
+export { executionReducer, createInitialExecutionState } from './utils/executionReducer.js';
 
 // Font parsing (lib-font wrappers)
 export { parseFont } from './utils/parseFont.js';
