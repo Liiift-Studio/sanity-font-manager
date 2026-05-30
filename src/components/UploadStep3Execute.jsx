@@ -76,13 +76,14 @@ export default function UploadStep3Execute({
 			clearInterval(timerRef.current);
 			wakeLockRef.current?.release().catch(() => {});
 			execDispatch({ type: 'SET_EXECUTION_STATUS', status: executionResult.success ? 'complete' : 'error' });
-			onComplete();
+			onComplete(executionResult);
 		}).catch((err) => {
 			clearInterval(timerRef.current);
 			wakeLockRef.current?.release().catch(() => {});
 			execDispatch({ type: 'SET_EXECUTION_ERROR', error: err.message });
-			setResult({ success: false, failed: 1, failedFonts: [{ title: 'Unknown', error: err.message }] });
-			onComplete();
+			const errorResult = { success: false, created: 0, updated: 0, failed: 1, skipped: 0, failedFonts: [{ title: 'Unknown', error: err.message, failedAt: 'unknown' }], fontRefs: [], variableRefs: [], typefacePatchError: err.message };
+			setResult(errorResult);
+			onComplete(errorResult);
 		});
 
 		return () => {

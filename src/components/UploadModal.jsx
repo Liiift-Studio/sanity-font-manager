@@ -34,16 +34,6 @@ function phaseToStep(phase) {
 
 /**
  * Upload modal — wraps the 3-step upload workflow in a Sanity UI Dialog.
- *
- * @param {object} props
- * @param {boolean} props.open - Whether the modal is visible
- * @param {function} props.onClose - Called when the modal requests close
- * @param {object} props.client - Sanity client
- * @param {string} props.docId - Typeface document _id
- * @param {string} props.typefaceTitle - Typeface title
- * @param {object} props.stylesObject - Existing typeface styles
- * @param {object} props.preferredStyleRef - Current preferredStyle
- * @param {object} props.slug - Typeface slug
  */
 export default function UploadModal({
 	open,
@@ -57,7 +47,9 @@ export default function UploadModal({
 }) {
 	const [plan, dispatch] = useReducer(planReducer, null, () => createEmptyPlan());
 	const [processingCancelled, setProcessingCancelled] = useState(false);
+	const [executionResult, setExecutionResult] = useState(null);
 	const cancelRef = useRef(false);
+	const focusRef = useRef(null);
 
 	const { weightKeywordList, italicKeywordList } = useMemo(() => generateStyleKeywords(), []);
 	const currentStep = phaseToStep(plan.phase);
@@ -71,14 +63,22 @@ export default function UploadModal({
 		return () => window.removeEventListener('beforeunload', handler);
 	}, [open, isExecuting]);
 
+	// Focus management on step transitions
+	useEffect(() => {
+		if (focusRef.current) {
+			focusRef.current.focus();
+		}
+	}, [currentStep]);
+
 	/** Handle close — confirm if plan has data, block during execution */
 	const handleClose = useCallback(() => {
-		if (isExecuting) return; // Blocked during upload
+		if (isExecuting) return;
 		const hasFonts = Object.keys(plan.fonts).length > 0;
 		if (hasFonts && plan.phase !== PLAN_PHASE.COMPLETE) {
 			if (!window.confirm('Close the upload modal? All progress will be lost.')) return;
 		}
 		dispatch({ type: 'SET_PHASE', phase: PLAN_PHASE.IDLE });
+		setExecutionResult(null);
 		onClose();
 	}, [plan, isExecuting, onClose]);
 
@@ -88,6 +88,7 @@ export default function UploadModal({
 		dispatch({ type: 'SET_PHASE', phase: PLAN_PHASE.PROCESSING });
 		cancelRef.current = false;
 		setProcessingCancelled(false);
+		setExecutionResult(null);
 
 		try {
 			const builtPlan = await buildUploadPlan({
@@ -110,7 +111,6 @@ export default function UploadModal({
 			});
 
 			if (!cancelRef.current) {
-				// Merge the full plan's fonts into the reducer (some may have been added via callbacks already)
 				for (const [tempId, entry] of Object.entries(builtPlan.fonts)) {
 					dispatch({ type: 'ADD_PROCESSED_FONT', tempId, fontEntry: entry });
 				}
@@ -129,18 +129,14 @@ export default function UploadModal({
 		dispatch({ type: 'SET_PHASE', phase: PLAN_PHASE.IDLE });
 	}, []);
 
-	/** Mark plan as ready for upload */
-	const handleReadyToUpload = useCallback(() => {
-		dispatch({ type: 'SET_PHASE', phase: PLAN_PHASE.READY });
-	}, []);
-
 	/** Transition to execution */
 	const handleStartExecution = useCallback(() => {
 		dispatch({ type: 'SET_PHASE', phase: PLAN_PHASE.EXECUTING });
 	}, []);
 
-	/** Mark execution complete */
-	const handleExecutionComplete = useCallback(() => {
+	/** Receive execution result and mark complete */
+	const handleExecutionComplete = useCallback((result) => {
+		setExecutionResult(result);
 		dispatch({ type: 'SET_PHASE', phase: PLAN_PHASE.COMPLETE });
 	}, []);
 
@@ -186,7 +182,6 @@ export default function UploadModal({
 						plan={plan}
 						dispatch={dispatch}
 						onCancelProcessing={handleCancelProcessing}
-						onReadyToUpload={handleReadyToUpload}
 						onStartExecution={handleStartExecution}
 						processingCancelled={processingCancelled}
 					/>
@@ -208,7 +203,16 @@ export default function UploadModal({
 				{plan.phase === PLAN_PHASE.COMPLETE && (
 					<UploadSummary
 						plan={plan}
+						result={executionResult}
 						onClose={handleClose}
+						onRetry={() => {
+							setExecutionResult(null);
+							dispatch({ type: 'SET_PHASE', phase: PLAN_PHASE.EXECUTING });
+						}}
+						client={client}
+						docId={docId}
+						stylesObject={stylesObject}
+						preferredStyleRef={preferredStyleRef}
 					/>
 				)}
 			</Box>

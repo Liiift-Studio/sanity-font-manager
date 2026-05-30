@@ -87,9 +87,33 @@ export default function UploadStep2Review({
 		return groups;
 	}, [visibleEntries]);
 
-	const handleUpload = useCallback(() => {
+	// Validation
+	const validationErrors = useMemo(() => {
+		const errors = [];
+		const uploadable = fontEntries.filter(f => f.status !== FONT_STATUS.ERROR);
+		// Missing titles
+		const missingTitles = uploadable.filter(f => !f.title || f.title.trim() === '');
+		if (missingTitles.length > 0) {
+			errors.push(`${missingTitles.length} font${missingTitles.length === 1 ? '' : 's'} missing a title`);
+		}
+		// Missing document IDs
+		const missingIds = uploadable.filter(f => !f.documentId || f.documentId.trim() === '');
+		if (missingIds.length > 0) {
+			errors.push(`${missingIds.length} font${missingIds.length === 1 ? '' : 's'} missing a document ID`);
+		}
+		// ID conflicts
 		if (hasConflicts) {
-			window.alert('Please resolve document ID conflicts before uploading.');
+			const conflictCount = uploadable.filter(f => f._idConflict).length;
+			errors.push(`${conflictCount} font${conflictCount === 1 ? '' : 's'} with duplicate document IDs`);
+		}
+		return errors;
+	}, [fontEntries, hasConflicts]);
+
+	const canUploadValidation = isReviewing && processedCount > 0 && validationErrors.length === 0;
+
+	const handleUpload = useCallback(() => {
+		if (validationErrors.length > 0) {
+			window.alert('Please fix the following before uploading:\n\n• ' + validationErrors.join('\n• '));
 			return;
 		}
 		const createCount = fontEntries.filter(f => {
@@ -104,7 +128,7 @@ export default function UploadStep2Review({
 		if (!window.confirm(`Upload ${processedCount} fonts?\n\n• ${createCount} new document${createCount === 1 ? '' : 's'}\n• ${updateCount} update${updateCount === 1 ? '' : 's'}\n\nThis cannot be undone.`)) return;
 
 		onStartExecution();
-	}, [fontEntries, processedCount, hasConflicts, onStartExecution]);
+	}, [fontEntries, processedCount, validationErrors, onStartExecution]);
 
 	const handleToggleExpandAll = useCallback(() => {
 		setAllExpanded(v => !v);
@@ -210,19 +234,25 @@ export default function UploadStep2Review({
 				</Card>
 			)}
 
+			{/* Validation errors */}
+			{isReviewing && validationErrors.length > 0 && (
+				<Card tone="caution" border padding={2} radius={2}>
+					<Stack space={1}>
+						{validationErrors.map((err, i) => (
+							<Text key={i} size={0} tone="caution">• {err}</Text>
+						))}
+					</Stack>
+				</Card>
+			)}
+
 			{/* Upload button */}
 			{isReviewing && processedCount > 0 && (
 				<Flex justify="flex-end" gap={2} style={{ position: 'sticky', bottom: 0, background: 'var(--card-bg-color)', paddingTop: 8, paddingBottom: 4 }}>
-					{hasConflicts && (
-						<Text size={0} tone="caution" style={{ alignSelf: 'center' }}>
-							Resolve ID conflicts before uploading
-						</Text>
-					)}
 					<Button
 						mode="default"
 						tone="primary"
 						text={`Upload ${processedCount} Font${processedCount === 1 ? '' : 's'} to Sanity`}
-						disabled={!canUpload}
+						disabled={!canUploadValidation}
 						onClick={handleUpload}
 					/>
 				</Flex>
