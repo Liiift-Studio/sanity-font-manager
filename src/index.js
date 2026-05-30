@@ -55,6 +55,39 @@ export { renameFontDocuments } from './utils/regenerateFontData.js';
 export { updateFontPrices } from './utils/updateFontPrices.js';
 export { sanitizeForSanityId } from './utils/sanitizeForSanityId.js';
 
+// Plan/Execute split — v3.0 upload modal architecture
+export { buildUploadPlan } from './utils/buildUploadPlan.js';
+export { executeUploadPlan } from './utils/executeUploadPlan.js';
+export { resolveExistingFont } from './utils/resolveExistingFont.js';
+export {
+	FONT_STATUS,
+	PLAN_PHASE,
+	RECOMMENDATION,
+	EXECUTION_STATUS,
+	PLAN_VERSION,
+	createFontDecisions,
+	createEmptyPlan,
+} from './utils/planTypes.js';
+
+// Font parsing (lib-font wrappers)
+export { parseFont } from './utils/parseFont.js';
+export {
+	getNameString,
+	getAllFeatureTags,
+	getCharacterSet,
+	getVariationAxes,
+	getNamedInstances,
+	getFontMetrics,
+	getFontMetadata,
+	getWeightClass,
+	getFsSelection,
+	getMacStyle,
+	getItalicAngle,
+	getGlyphCount,
+	getFamilyClass,
+	escapeCssFontName,
+} from './utils/fontHelpers.js';
+
 // Schema field definitions
 export { openTypeField } from './schema/openTypeField.js';
 export { styleCountField } from './schema/styleCountField.js';
