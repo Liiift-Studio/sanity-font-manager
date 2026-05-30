@@ -202,13 +202,27 @@ export function getFsSelection(font) {
 }
 
 /**
- * Get the head macStyle flags as a raw uint16.
+ * Get the head macStyle flags as a uint16 bitmask.
+ * lib-font returns macStyle as a bit array (big-endian order: index 15 = bit 0).
+ * This helper converts it back to a standard uint16 for bitwise testing.
  *
  * @param {object} font - lib-font Font instance
  * @returns {number} macStyle bitmask (0 if head table is missing)
  */
 export function getMacStyle(font) {
-	return font.opentype?.tables?.head?.macStyle || 0;
+	const macStyle = font.opentype?.tables?.head?.macStyle;
+	if (!macStyle) return 0;
+	// lib-font returns a bit array or a number depending on version
+	if (typeof macStyle === 'number') return macStyle;
+	// Convert bit array (big-endian) to uint16: index 15 = bit 0, index 14 = bit 1, etc.
+	if (typeof macStyle === 'object') {
+		let value = 0;
+		for (let i = 0; i < 16; i++) {
+			if (macStyle[i]) value |= (1 << (15 - i));
+		}
+		return value;
+	}
+	return 0;
 }
 
 /**
