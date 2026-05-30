@@ -1,13 +1,13 @@
-// Step 2 — Processing & Review (skeleton — full implementation in Phase C.17)
+// Step 2 — Processing & Review with FontReviewCard, BulkActions, and SubfamilyOrganizer
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { Box, Stack, Flex, Text, Button, Card, Spinner, Badge } from '@sanity/ui';
-import { PLAN_PHASE, FONT_STATUS } from '../utils/planTypes';
+import { PLAN_PHASE, FONT_STATUS, RECOMMENDATION } from '../utils/planTypes';
+import FontReviewCard from './FontReviewCard';
+import BulkActions from './BulkActions';
 
 /**
- * Step 2 — displays processing progress and font review cards.
- * Currently a functional skeleton that shows progress and font list.
- * Full review card editing UI will be built in Phase C.17.
+ * Step 2 — displays processing progress and font review cards with full editing.
  */
 export default function UploadStep2Review({
 	plan,
@@ -19,35 +19,100 @@ export default function UploadStep2Review({
 }) {
 	const isProcessing = plan.phase === PLAN_PHASE.PROCESSING;
 	const isReviewing = plan.phase === PLAN_PHASE.REVIEWING || plan.phase === PLAN_PHASE.READY;
+
+	// Search and filter state
+	const [searchQuery, setSearchQuery] = useState('');
+	const [filterBy, setFilterBy] = useState('all');
+	const [allExpanded, setAllExpanded] = useState(false);
+
 	const fontEntries = useMemo(() => Object.values(plan.fonts), [plan.fonts]);
 	const processedCount = fontEntries.filter(f => f.status === FONT_STATUS.PROCESSED).length;
 	const errorCount = fontEntries.filter(f => f.status === FONT_STATUS.ERROR).length;
 	const totalCount = plan.processingProgress.total;
 
+	// Filter and search
+	const visibleEntries = useMemo(() => {
+		let entries = fontEntries;
+
+		// Apply filter
+		if (filterBy === 'create') {
+			entries = entries.filter(f => {
+				const d = f.decisions?.existingDocument;
+				const choice = d?.userChoice;
+				const rec = d?.recommendation;
+				return choice === 'create' || (!choice && (rec === RECOMMENDATION.CREATE || rec === RECOMMENDATION.AMBIGUOUS));
+			});
+		} else if (filterBy === 'update') {
+			entries = entries.filter(f => {
+				const d = f.decisions?.existingDocument;
+				const choice = d?.userChoice;
+				const rec = d?.recommendation;
+				return choice === 'update' || (!choice && (rec === RECOMMENDATION.USE_EXACT || rec === RECOMMENDATION.USE_CANDIDATE));
+			});
+		} else if (filterBy === 'error') {
+			entries = entries.filter(f => f.status === FONT_STATUS.ERROR);
+		} else if (filterBy === 'conflict') {
+			entries = entries.filter(f => f._idConflict);
+		} else if (filterBy.startsWith('sf:')) {
+			const sf = filterBy.slice(3);
+			entries = entries.filter(f => f.subfamily === sf);
+		}
+
+		// Apply search
+		if (searchQuery.trim()) {
+			const q = searchQuery.toLowerCase().trim();
+			entries = entries.filter(f =>
+				f.title?.toLowerCase().includes(q) ||
+				f.documentId?.toLowerCase().includes(q) ||
+				f.sourceFileName?.toLowerCase().includes(q) ||
+				f.weightName?.toLowerCase().includes(q)
+			);
+		}
+
+		return entries;
+	}, [fontEntries, filterBy, searchQuery]);
+
+	const visibleTempIds = useMemo(() => visibleEntries.map(e => e.tempId), [visibleEntries]);
 	const hasConflicts = fontEntries.some(f => f._idConflict);
 	const canUpload = isReviewing && processedCount > 0 && !hasConflicts;
 
-	const handleUpload = () => {
+	// Group by subfamily for display
+	const groupedEntries = useMemo(() => {
+		const groups = {};
+		for (const entry of visibleEntries) {
+			const sf = entry.subfamily || 'Ungrouped';
+			if (!groups[sf]) groups[sf] = [];
+			groups[sf].push(entry);
+		}
+		return groups;
+	}, [visibleEntries]);
+
+	const handleUpload = useCallback(() => {
 		if (hasConflicts) {
 			window.alert('Please resolve document ID conflicts before uploading.');
 			return;
 		}
 		const createCount = fontEntries.filter(f => {
+			if (f.status === FONT_STATUS.ERROR) return false;
 			const d = f.decisions?.existingDocument;
 			const choice = d?.userChoice;
 			const rec = d?.recommendation;
-			return choice === 'create' || (!choice && (rec === 'create' || rec === 'ambiguous'));
+			return choice === 'create' || (!choice && (rec === RECOMMENDATION.CREATE || rec === RECOMMENDATION.AMBIGUOUS));
 		}).length;
 		const updateCount = processedCount - createCount;
 
 		if (!window.confirm(`Upload ${processedCount} fonts?\n\n• ${createCount} new document${createCount === 1 ? '' : 's'}\n• ${updateCount} update${updateCount === 1 ? '' : 's'}\n\nThis cannot be undone.`)) return;
 
 		onStartExecution();
-	};
+	}, [fontEntries, processedCount, hasConflicts, onStartExecution]);
+
+	const handleToggleExpandAll = useCallback(() => {
+		setAllExpanded(v => !v);
+	}, []);
 
 	return (
-		<Stack space={4}>
-			{/* Processing progress bar */}
+		<Stack space={3}>
+			{/* Processing progress */}
 			{isProcessing && (
 				<Card border padding={3} radius={2}>
 					<Stack space={3}>
@@ -57,7 +122,6 @@ export default function UploadStep2Review({
 								Processing {plan.processingProgress.completed} of {totalCount} files...
 							</Text>
 						</Flex>
-						{/* Progress bar */}
 						<Box style={{ height: 4, background: 'var(--card-border-color)', borderRadius: 2, overflow: 'hidden' }}>
 							<Box
 								style={{
@@ -104,70 +168,56 @@ export default function UploadStep2Review({
 				</Card>
 			)}
 
-			{/* Font card list (simplified — full review cards in Phase C.17) */}
+			{/* Bulk actions bar */}
 			{fontEntries.length > 0 && (
-				<Stack space={2}>
-					<Text size={1} weight="semibold">
-						Fonts ({fontEntries.length})
-					</Text>
-					<Box style={{ maxHeight: 400, overflowY: 'auto' }}>
-						<Stack space={1}>
-							{fontEntries.map(entry => (
-								<Card
-									key={entry.tempId}
-									border
-									radius={1}
-									padding={2}
-									tone={entry.status === FONT_STATUS.ERROR ? 'critical' : entry._idConflict ? 'caution' : 'default'}
-								>
-									<Flex align="center" justify="space-between" gap={2}>
-										<Flex align="center" gap={2} style={{ flex: 1, minWidth: 0 }}>
-											<Text size={1} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-												{entry.title || entry.sourceFileName}
-											</Text>
-										</Flex>
-										<Flex gap={1} align="center">
-											{entry.status === FONT_STATUS.ERROR && (
-												<Badge tone="critical" fontSize={0}>Error</Badge>
-											)}
-											{entry._idConflict && (
-												<Badge tone="caution" fontSize={0}>ID Conflict</Badge>
-											)}
-											{entry.variableFont && (
-												<Badge tone="primary" fontSize={0}>VF</Badge>
-											)}
-											<Badge fontSize={0}>{entry.weight}</Badge>
-											<Badge tone={entry.style === 'Italic' ? 'primary' : 'default'} mode="outline" fontSize={0}>
-												{entry.style}
-											</Badge>
-											{entry.decisions?.existingDocument?.recommendation !== 'create' && (
-												<Badge tone="positive" fontSize={0}>Update</Badge>
-											)}
-											{isReviewing && entry.status !== FONT_STATUS.ERROR && (
-												<Button
-													mode="bleed"
-													tone="critical"
-													fontSize={0}
-													padding={1}
-													text="Remove"
-													onClick={() => dispatch({ type: 'REMOVE_FONT', tempId: entry.tempId })}
-												/>
-											)}
-										</Flex>
-									</Flex>
-									{entry.status === FONT_STATUS.ERROR && (
-										<Text size={0} muted style={{ marginTop: 4 }}>{entry.error}</Text>
-									)}
-								</Card>
-							))}
-						</Stack>
-					</Box>
+				<BulkActions
+					fonts={plan.fonts}
+					dispatch={dispatch}
+					searchQuery={searchQuery}
+					onSearchChange={setSearchQuery}
+					filterBy={filterBy}
+					onFilterChange={setFilterBy}
+					allExpanded={allExpanded}
+					onToggleExpandAll={handleToggleExpandAll}
+					visibleTempIds={visibleTempIds}
+				/>
+			)}
+
+			{/* Font cards grouped by subfamily */}
+			{Object.entries(groupedEntries).map(([subfamily, entries]) => (
+				<Stack key={subfamily} space={2}>
+					{Object.keys(groupedEntries).length > 1 && (
+						<Text size={0} weight="semibold" muted style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+							{subfamily} ({entries.length})
+						</Text>
+					)}
+					<Stack space={1}>
+						{entries.map(entry => (
+							<FontReviewCard
+								key={entry.tempId}
+								entry={entry}
+								dispatch={dispatch}
+							/>
+						))}
+					</Stack>
 				</Stack>
+			))}
+
+			{/* Empty state */}
+			{visibleEntries.length === 0 && fontEntries.length > 0 && (
+				<Card border padding={4} radius={2}>
+					<Text size={1} muted align="center">No fonts match the current filter</Text>
+				</Card>
 			)}
 
 			{/* Upload button */}
-			{isReviewing && (
-				<Flex justify="flex-end" gap={2}>
+			{isReviewing && processedCount > 0 && (
+				<Flex justify="flex-end" gap={2} style={{ position: 'sticky', bottom: 0, background: 'var(--card-bg-color)', paddingTop: 8, paddingBottom: 4 }}>
+					{hasConflicts && (
+						<Text size={0} tone="caution" style={{ alignSelf: 'center' }}>
+							Resolve ID conflicts before uploading
+						</Text>
+					)}
 					<Button
 						mode="default"
 						tone="primary"

@@ -77,6 +77,9 @@ export { default as UploadStep1Settings } from './components/UploadStep1Settings
 export { default as UploadStep2Review } from './components/UploadStep2Review.jsx';
 export { default as UploadStep3Execute } from './components/UploadStep3Execute.jsx';
 export { default as UploadSummary } from './components/UploadSummary.jsx';
+export { default as FontReviewCard } from './components/FontReviewCard.jsx';
+export { default as ExistingDocumentResolver } from './components/ExistingDocumentResolver.jsx';
+export { default as BulkActions } from './components/BulkActions.jsx';
 
 // Font parsing (lib-font wrappers)
 export { parseFont } from './utils/parseFont.js';
