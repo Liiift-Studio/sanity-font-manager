@@ -1,9 +1,11 @@
 // Batch font uploader — drag-and-drop file list, confirm-to-upload, elapsed timer, Wake Lock, and beforeunload guard for long uploads
 
-import React, { useCallback, useState, useMemo, useRef, useEffect } from 'react';
+import React, { useCallback, useState, useMemo, useRef, useEffect, lazy, Suspense } from 'react';
 import { Card, Box, Flex, Grid, Text, Label, Switch, Button, Spinner, Tooltip, Stack } from '@sanity/ui';
 import { ControlsIcon, InfoOutlineIcon, TrashIcon, UploadIcon, WarningOutlineIcon } from '@sanity/icons';
 import { useFormValue } from 'sanity';
+
+const UploadModal = lazy(() => import('./UploadModal'));
 
 import { useSanityClient } from '../hooks/useSanityClient';
 import { processFontFiles } from '../utils/processFontFiles';
@@ -39,6 +41,7 @@ export const BatchUploadFonts = () => {
 	const [pendingFiles, setPendingFiles] = useState([]);
 	const [isDragging, setIsDragging] = useState(false);
 	const [elapsedSeconds, setElapsedSeconds] = useState(0);
+	const [showUploadModal, setShowUploadModal] = useState(false);
 
 	const fileInputRef = useRef(null);
 	const elapsedTimerRef = useRef(null);
@@ -530,17 +533,44 @@ export const BatchUploadFonts = () => {
 						status={status}
 						error={error}
 						action={
-							<Button
-								mode={showUtilities ? 'default' : 'ghost'}
-								tone="primary"
-								icon={ControlsIcon}
-								text="Utilities"
-								fontSize={1}
-								padding={2}
-								onClick={() => setShowUtilities(v => !v)}
-							/>
+							<Flex gap={2}>
+								<Button
+									mode="default"
+									tone="primary"
+									icon={UploadIcon}
+									text="Upload Fonts"
+									fontSize={1}
+									padding={2}
+									onClick={() => setShowUploadModal(true)}
+								/>
+								<Button
+									mode={showUtilities ? 'default' : 'ghost'}
+									tone="primary"
+									icon={ControlsIcon}
+									text="Utilities"
+									fontSize={1}
+									padding={2}
+									onClick={() => setShowUtilities(v => !v)}
+								/>
+							</Flex>
 						}
 					/>
+
+					{/* New upload modal */}
+					{showUploadModal && (
+						<Suspense fallback={<Spinner />}>
+							<UploadModal
+								open={showUploadModal}
+								onClose={() => setShowUploadModal(false)}
+								client={client}
+								docId={doc_id}
+								typefaceTitle={title}
+								stylesObject={stylesObject}
+								preferredStyleRef={preferredStyleRef}
+								slug={slug}
+							/>
+						</Suspense>
+					)}
 
 					<Card border padding={2} shadow={1} radius={2}>
 						{showUtilities ? (
