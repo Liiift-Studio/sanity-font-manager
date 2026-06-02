@@ -130,7 +130,7 @@ export default function UploadSummary({
 							text="Retry Failed"
 							fontSize={1}
 							padding={2}
-							onClick={onRetry}
+							onClick={() => onRetry(result.failedFonts.map(f => f.tempId).filter(Boolean))}
 						/>
 					</Flex>
 					<Box style={{ maxHeight: 200, overflowY: 'auto' }}>

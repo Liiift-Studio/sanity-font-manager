@@ -1,10 +1,18 @@
-// Step 2 — Processing & Review with FontReviewCard, BulkActions, and SubfamilyOrganizer
+// Step 2 — Processing & Review with FontReviewCard, BulkActions, and subfamily grouping
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Box, Stack, Flex, Text, Button, Card, Spinner, Badge } from '@sanity/ui';
 import { PLAN_PHASE, FONT_STATUS, RECOMMENDATION } from '../utils/planTypes';
 import FontReviewCard from './FontReviewCard';
 import BulkActions from './BulkActions';
+
+/** Determines whether a font entry will create or update a document */
+function isUpdateEntry(entry) {
+	const d = entry.decisions?.existingDocument;
+	const choice = d?.userChoice;
+	const rec = d?.recommendation;
+	return choice === 'update' || (!choice && (rec === RECOMMENDATION.USE_EXACT || rec === RECOMMENDATION.USE_CANDIDATE));
+}
 
 /**
  * Step 2 — displays processing progress and font review cards with full editing.
@@ -30,25 +38,62 @@ export default function UploadStep2Review({
 	const errorCount = fontEntries.filter(f => f.status === FONT_STATUS.ERROR).length;
 	const totalCount = plan.processingProgress.total;
 
+	// Debug: log all fonts with their subfamily assignment for investigation
+	useEffect(() => {
+		if (!isReviewing) return;
+		const processed = fontEntries.filter(f => f.status !== FONT_STATUS.ERROR);
+		if (processed.length === 0) return;
+
+		// Group by subfamily for clear logging
+		const bySubfamily = {};
+		processed.forEach(f => {
+			const sf = f.subfamily || '(none)';
+			if (!bySubfamily[sf]) bySubfamily[sf] = [];
+			bySubfamily[sf].push(f);
+		});
+
+		console.group('[UploadStep2Review] Subfamily assignments');
+		Object.entries(bySubfamily).forEach(([sf, fonts]) => {
+			console.group(`Subfamily: "${sf}" (${fonts.length} font${fonts.length === 1 ? '' : 's'})`);
+			fonts.forEach(f => {
+				console.log(`  "${f.title}" (id: ${f.documentId})`, {
+					sourceFile: f.sourceFileName,
+					weightName: f.weightName,
+					style: f.style,
+					subfamily: f.subfamily,
+					subfamilyDecision: f.decisions?.subfamily,
+					parsedMetadata: {
+						familyName: f.parsedMetadata?.familyName,
+						fullName: f.parsedMetadata?.fullName,
+						preferredFamily: f.parsedMetadata?.preferredFamily,
+						preferredSubfamily: f.parsedMetadata?.preferredSubfamily,
+					},
+				});
+			});
+			console.groupEnd();
+		});
+		console.groupEnd();
+	}, [isReviewing, fontEntries]);
+
+	// Count creates vs updates
+	const createCount = useMemo(() =>
+		fontEntries.filter(f => f.status !== FONT_STATUS.ERROR && !isUpdateEntry(f)).length,
+		[fontEntries]
+	);
+	const updateCount = useMemo(() =>
+		fontEntries.filter(f => f.status !== FONT_STATUS.ERROR && isUpdateEntry(f)).length,
+		[fontEntries]
+	);
+
 	// Filter and search
 	const visibleEntries = useMemo(() => {
 		let entries = fontEntries;
 
 		// Apply filter
 		if (filterBy === 'create') {
-			entries = entries.filter(f => {
-				const d = f.decisions?.existingDocument;
-				const choice = d?.userChoice;
-				const rec = d?.recommendation;
-				return choice === 'create' || (!choice && (rec === RECOMMENDATION.CREATE || rec === RECOMMENDATION.AMBIGUOUS));
-			});
+			entries = entries.filter(f => !isUpdateEntry(f) && f.status !== FONT_STATUS.ERROR);
 		} else if (filterBy === 'update') {
-			entries = entries.filter(f => {
-				const d = f.decisions?.existingDocument;
-				const choice = d?.userChoice;
-				const rec = d?.recommendation;
-				return choice === 'update' || (!choice && (rec === RECOMMENDATION.USE_EXACT || rec === RECOMMENDATION.USE_CANDIDATE));
-			});
+			entries = entries.filter(f => isUpdateEntry(f));
 		} else if (filterBy === 'error') {
 			entries = entries.filter(f => f.status === FONT_STATUS.ERROR);
 		} else if (filterBy === 'conflict') {
@@ -74,34 +119,38 @@ export default function UploadStep2Review({
 
 	const visibleTempIds = useMemo(() => visibleEntries.map(e => e.tempId), [visibleEntries]);
 	const hasConflicts = fontEntries.some(f => f._idConflict);
-	const canUpload = isReviewing && processedCount > 0 && !hasConflicts;
 
-	// Group by subfamily for display
+	// Group by subfamily for display — always show headers
 	const groupedEntries = useMemo(() => {
 		const groups = {};
 		for (const entry of visibleEntries) {
-			const sf = entry.subfamily || 'Ungrouped';
+			const sf = entry.subfamily || 'No Subfamilies';
 			if (!groups[sf]) groups[sf] = [];
 			groups[sf].push(entry);
 		}
-		return groups;
+		// Sort: named subfamilies first alphabetically, No Subfamilies last
+		const sorted = {};
+		const keys = Object.keys(groups).sort((a, b) => {
+			if (a === 'No Subfamilies') return 1;
+			if (b === 'No Subfamilies') return -1;
+			return a.localeCompare(b);
+		});
+		keys.forEach(k => { sorted[k] = groups[k]; });
+		return sorted;
 	}, [visibleEntries]);
 
 	// Validation
 	const validationErrors = useMemo(() => {
 		const errors = [];
 		const uploadable = fontEntries.filter(f => f.status !== FONT_STATUS.ERROR);
-		// Missing titles
 		const missingTitles = uploadable.filter(f => !f.title || f.title.trim() === '');
 		if (missingTitles.length > 0) {
 			errors.push(`${missingTitles.length} font${missingTitles.length === 1 ? '' : 's'} missing a title`);
 		}
-		// Missing document IDs
 		const missingIds = uploadable.filter(f => !f.documentId || f.documentId.trim() === '');
 		if (missingIds.length > 0) {
 			errors.push(`${missingIds.length} font${missingIds.length === 1 ? '' : 's'} missing a document ID`);
 		}
-		// ID conflicts
 		if (hasConflicts) {
 			const conflictCount = uploadable.filter(f => f._idConflict).length;
 			errors.push(`${conflictCount} font${conflictCount === 1 ? '' : 's'} with duplicate document IDs`);
@@ -116,19 +165,8 @@ export default function UploadStep2Review({
 			window.alert('Please fix the following before uploading:\n\n• ' + validationErrors.join('\n• '));
 			return;
 		}
-		const createCount = fontEntries.filter(f => {
-			if (f.status === FONT_STATUS.ERROR) return false;
-			const d = f.decisions?.existingDocument;
-			const choice = d?.userChoice;
-			const rec = d?.recommendation;
-			return choice === 'create' || (!choice && (rec === RECOMMENDATION.CREATE || rec === RECOMMENDATION.AMBIGUOUS));
-		}).length;
-		const updateCount = processedCount - createCount;
-
-		if (!window.confirm(`Upload ${processedCount} fonts?\n\n• ${createCount} new document${createCount === 1 ? '' : 's'}\n• ${updateCount} update${updateCount === 1 ? '' : 's'}\n\nThis cannot be undone.`)) return;
-
 		onStartExecution();
-	}, [fontEntries, processedCount, validationErrors, onStartExecution]);
+	}, [validationErrors, onStartExecution]);
 
 	const handleToggleExpandAll = useCallback(() => {
 		setAllExpanded(v => !v);
@@ -181,13 +219,15 @@ export default function UploadStep2Review({
 			{/* Processing complete summary */}
 			{isReviewing && (
 				<Card tone={errorCount > 0 ? 'caution' : 'positive'} border padding={3} radius={2}>
-					<Flex align="center" gap={2}>
+					<Flex align="center" gap={3}>
 						<Text size={1} weight="semibold">
-							{processedCount} font{processedCount === 1 ? '' : 's'} processed
+							{processedCount} document{processedCount === 1 ? '' : 's'}
 						</Text>
-						{errorCount > 0 && (
-							<Badge tone="critical" fontSize={0}>{errorCount} error{errorCount === 1 ? '' : 's'}</Badge>
-						)}
+						<Flex gap={1}>
+							{createCount > 0 && <Badge tone="positive" fontSize={0}>{createCount} create</Badge>}
+							{updateCount > 0 && <Badge tone="caution" fontSize={0}>{updateCount} update</Badge>}
+							{errorCount > 0 && <Badge tone="critical" fontSize={0}>{errorCount} error{errorCount === 1 ? '' : 's'}</Badge>}
+						</Flex>
 					</Flex>
 				</Card>
 			)}
@@ -210,11 +250,14 @@ export default function UploadStep2Review({
 			{/* Font cards grouped by subfamily */}
 			{Object.entries(groupedEntries).map(([subfamily, entries]) => (
 				<Stack key={subfamily} space={2}>
-					{Object.keys(groupedEntries).length > 1 && (
-						<Text size={0} weight="semibold" muted style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-							{subfamily} ({entries.length})
-						</Text>
-					)}
+					<Card padding={2} radius={1} style={{ background: 'var(--card-muted-bg-color)' }}>
+						<Flex align="center" gap={2}>
+							<Text size={1} weight="semibold">
+								{subfamily}
+							</Text>
+							<Badge mode="outline" fontSize={0}>{entries.length}</Badge>
+						</Flex>
+					</Card>
 					<Stack space={1}>
 						{entries.map(entry => (
 							<FontReviewCard

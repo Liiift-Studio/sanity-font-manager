@@ -24,6 +24,7 @@ export default function UploadStep3Execute({
 	docId,
 	stylesObject,
 	preferredStyleRef,
+	retryTempIds,
 	onComplete,
 }) {
 	const [execState, execDispatch] = useReducer(executionReducer, null, createInitialExecutionState);
@@ -48,8 +49,18 @@ export default function UploadStep3Execute({
 
 		execDispatch({ type: 'SET_EXECUTION_STATUS', status: 'uploading' });
 
+		// When retrying, filter plan to only include failed fonts
+		const executionPlan = retryTempIds
+			? {
+				...plan,
+				fonts: Object.fromEntries(
+					Object.entries(plan.fonts).filter(([tempId]) => retryTempIds.includes(tempId))
+				),
+			}
+			: plan;
+
 		executeUploadPlan({
-			plan,
+			plan: executionPlan,
 			client,
 			docId,
 			stylesObject,

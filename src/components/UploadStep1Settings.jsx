@@ -185,8 +185,7 @@ export default function UploadStep1Settings({ settings, onStartProcessing }) {
 							onClick={() => setPendingFiles([])}
 						/>
 					</Flex>
-
-					<Box style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+					<Stack space={2} style={{ maxHeight: 300, overflowY: 'auto' }}>
 						{sortFilesByType(pendingFiles).map((file, i) => {
 							const ext = file.name.split('.').pop().toUpperCase();
 							return (
@@ -211,7 +210,7 @@ export default function UploadStep1Settings({ settings, onStartProcessing }) {
 								</Card>
 							);
 						})}
-					</Box>
+					</Stack>
 				</Stack>
 			)}
 

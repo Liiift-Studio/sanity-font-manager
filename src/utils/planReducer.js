@@ -7,9 +7,11 @@ import { sanitizeForSanityId } from './sanitizeForSanityId';
 const VALID_TRANSITIONS = {
 	[PLAN_PHASE.IDLE]: [PLAN_PHASE.PROCESSING],
 	[PLAN_PHASE.PROCESSING]: [PLAN_PHASE.REVIEWING],
-	[PLAN_PHASE.REVIEWING]: [PLAN_PHASE.READY],
+	[PLAN_PHASE.REVIEWING]: [PLAN_PHASE.READY, PLAN_PHASE.EXECUTING],
 	[PLAN_PHASE.READY]: [PLAN_PHASE.EXECUTING],
 	[PLAN_PHASE.EXECUTING]: [PLAN_PHASE.COMPLETE, PLAN_PHASE.ERROR],
+	[PLAN_PHASE.COMPLETE]: [PLAN_PHASE.EXECUTING],
+	[PLAN_PHASE.ERROR]: [PLAN_PHASE.EXECUTING],
 };
 
 /**
@@ -36,7 +38,18 @@ export function planReducer(state, action) {
 				console.warn(`Invalid phase transition: ${state.phase} → ${action.phase}`);
 				return state;
 			}
-			return { ...state, phase: action.phase };
+			const nextState = { ...state, phase: action.phase };
+			// Allow setting total file count when entering PROCESSING phase
+			if (typeof action.totalFiles === 'number') {
+				nextState.processingProgress = {
+					...state.processingProgress,
+					total: action.totalFiles,
+					completed: 0,
+					failed: 0,
+					currentFile: null,
+				};
+			}
+			return nextState;
 		}
 
 		case 'SET_SETTINGS': {
@@ -50,6 +63,13 @@ export function planReducer(state, action) {
 		// ---------------------------------------------------------------
 		// Processing (Phase 1) — dispatched by buildUploadPlan callbacks
 		// ---------------------------------------------------------------
+
+		case 'UPDATE_PROCESSING_PROGRESS': {
+			return {
+				...state,
+				processingProgress: { ...state.processingProgress, ...action.progress },
+			};
+		}
 
 		case 'ADD_PROCESSED_FONT': {
 			const { tempId, fontEntry } = action;

@@ -48,6 +48,7 @@ export default function UploadModal({
 	const [plan, dispatch] = useReducer(planReducer, null, () => createEmptyPlan());
 	const [processingCancelled, setProcessingCancelled] = useState(false);
 	const [executionResult, setExecutionResult] = useState(null);
+	const [retryTempIds, setRetryTempIds] = useState(null);
 	const cancelRef = useRef(false);
 	const focusRef = useRef(null);
 
@@ -85,7 +86,7 @@ export default function UploadModal({
 	/** Start processing — transition to Step 2 and build the plan */
 	const handleStartProcessing = useCallback(async (files, settings) => {
 		dispatch({ type: 'SET_SETTINGS', settings });
-		dispatch({ type: 'SET_PHASE', phase: PLAN_PHASE.PROCESSING });
+		dispatch({ type: 'SET_PHASE', phase: PLAN_PHASE.PROCESSING, totalFiles: files.length });
 		cancelRef.current = false;
 		setProcessingCancelled(false);
 		setExecutionResult(null);
@@ -102,15 +103,15 @@ export default function UploadModal({
 				italicKeywordList,
 				onProgress: (event) => {
 					if (cancelRef.current) return;
-					if (event.type === 'font-processed' && event.fontEntry) {
-						dispatch({ type: 'ADD_PROCESSED_FONT', tempId: event.tempId, fontEntry: event.fontEntry });
-					} else if (event.type === 'font-error') {
-						dispatch({ type: 'SET_PROCESSING_ERROR', tempId: event.tempId, error: event.error });
+					// Update progress counter only — don't add entries yet (they haven't been merged by documentId)
+					if (event.type === 'font-processed' || event.type === 'font-error') {
+						dispatch({ type: 'UPDATE_PROCESSING_PROGRESS', progress: event.progress });
 					}
 				},
 			});
 
 			if (!cancelRef.current) {
+				// Dispatch the final merged plan entries (files with the same documentId are already grouped)
 				for (const [tempId, entry] of Object.entries(builtPlan.fonts)) {
 					dispatch({ type: 'ADD_PROCESSED_FONT', tempId, fontEntry: entry });
 				}
@@ -142,24 +143,64 @@ export default function UploadModal({
 
 	if (!open) return null;
 
+	/** Navigate to a step by clicking the step indicator */
+	const handleStepClick = useCallback((stepKey) => {
+		if (isExecuting) return;
+		if (stepKey === currentStep) return;
+		// Can only go back to step 1 (reset to settings)
+		if (stepKey === 1 && currentStep > 1) {
+			if (Object.keys(plan.fonts).length > 0) {
+				if (!window.confirm('Go back to settings? Current review progress will be lost.')) return;
+			}
+			dispatch({ type: 'SET_PHASE', phase: PLAN_PHASE.IDLE });
+		}
+	}, [currentStep, isExecuting, plan.fonts, dispatch]);
+
 	return (
 		<Dialog
 			id="upload-modal"
 			header={
-				<Flex align="center" justify="space-between" style={{ width: '100%' }}>
-					<Text weight="semibold">Upload Fonts</Text>
-					<Flex gap={2}>
-						{STEPS.map((step) => (
-							<Badge
-								key={step.key}
-								tone={currentStep === step.key ? 'primary' : currentStep > step.key ? 'positive' : 'default'}
-								mode={currentStep === step.key ? 'default' : 'outline'}
-								fontSize={0}
-								padding={1}
-							>
-								{step.key}. {step.label}
-							</Badge>
-						))}
+				<Flex direction="column" gap={3} style={{ width: '100%' }}>
+					<Text weight="semibold" size={2}>Upload Fonts</Text>
+					<Flex gap={1} style={{ width: '100%' }}>
+						{STEPS.map((step, i) => {
+							const isActive = currentStep === step.key;
+							const isCompleted = currentStep > step.key;
+							const isClickable = !isExecuting && step.key < currentStep;
+							return (
+								<Box
+									key={step.key}
+									as={isClickable ? 'button' : 'div'}
+									onClick={isClickable ? () => handleStepClick(step.key) : undefined}
+									style={{
+										flex: 1,
+										padding: '10px 12px',
+										border: 'none',
+										borderRadius: 4,
+										cursor: isClickable ? 'pointer' : 'default',
+										background: isActive
+											? 'var(--card-badge-primary-bg-color)'
+											: isCompleted
+												? 'var(--card-badge-positive-bg-color)'
+												: 'var(--card-muted-bg-color)',
+										color: isActive || isCompleted
+											? 'var(--card-badge-primary-fg-color)'
+											: 'var(--card-muted-fg-color)',
+										textAlign: 'center',
+										transition: 'background 0.15s ease',
+										opacity: !isActive && !isCompleted ? 0.6 : 1,
+									}}
+								>
+									<Text
+										size={1}
+										weight={isActive ? 'bold' : 'medium'}
+										style={{ color: 'inherit' }}
+									>
+										{step.key}. {step.label}
+									</Text>
+								</Box>
+							);
+						})}
 					</Flex>
 				</Flex>
 			}
@@ -190,12 +231,17 @@ export default function UploadModal({
 				{/* Step 3: Upload Execution */}
 				{currentStep === 3 && plan.phase !== PLAN_PHASE.COMPLETE && (
 					<UploadStep3Execute
+						key={retryTempIds ? 'retry' : 'initial'}
 						plan={plan}
 						client={client}
 						docId={docId}
 						stylesObject={stylesObject}
 						preferredStyleRef={preferredStyleRef}
-						onComplete={handleExecutionComplete}
+						retryTempIds={retryTempIds}
+						onComplete={(result) => {
+							setRetryTempIds(null);
+							handleExecutionComplete(result);
+						}}
 					/>
 				)}
 
@@ -205,7 +251,8 @@ export default function UploadModal({
 						plan={plan}
 						result={executionResult}
 						onClose={handleClose}
-						onRetry={() => {
+						onRetry={(failedTempIds) => {
+							setRetryTempIds(failedTempIds || null);
 							setExecutionResult(null);
 							dispatch({ type: 'SET_PHASE', phase: PLAN_PHASE.EXECUTING });
 						}}

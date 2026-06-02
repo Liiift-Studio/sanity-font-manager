@@ -103,7 +103,7 @@ const FontReviewCard = memo(function FontReviewCard({ entry, dispatch, allExpand
 				<Box padding={2}>
 					<Flex align="center" gap={2}>
 						{!isError && (expanded ? <ChevronDownIcon /> : <ChevronRightIcon />)}
-						<Text size={1} weight="semibold" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+						<Text size={1} weight="semibold" style={{ flex: 1,  textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
 							{entry.title || entry.sourceFileName}
 						</Text>
 						<Flex gap={1} align="center" style={{ flexShrink: 0 }}>
@@ -114,13 +114,15 @@ const FontReviewCard = memo(function FontReviewCard({ entry, dispatch, allExpand
 							<Badge tone={entry.style === 'Italic' ? 'primary' : 'default'} mode="outline" fontSize={0}>
 								{entry.style}
 							</Badge>
-							{entry.subfamily && <Badge mode="outline" fontSize={0}>{entry.subfamily}</Badge>}
-							<Badge tone={isUpdate ? 'positive' : 'default'} fontSize={0}>
+							{entry.files?.length > 1 && (
+								<Badge mode="outline" fontSize={0}>{entry.files.length} files</Badge>
+							)}
+							<Badge tone={isUpdate ? 'caution' : 'positive'} fontSize={0}>
 								{isUpdate ? 'Update' : 'Create'}
 							</Badge>
 						</Flex>
 					</Flex>
-				</Box>
+				</Box> 
 			</Box>
 
 			{/* Error message */}
@@ -137,6 +139,23 @@ const FontReviewCard = memo(function FontReviewCard({ entry, dispatch, allExpand
 			{expanded && !isError && (
 				<Box padding={3} style={{ borderTop: '1px solid var(--card-border-color)' }}>
 					<Stack space={4}>
+						{/* Files in this document */}
+						{entry.files?.length > 0 && (
+							<Stack space={2}>
+								<Label size={0}>Files ({entry.files.length})</Label>
+								<Flex gap={1} wrap="wrap">
+									{entry.files.map((f, i) => {
+										const ext = f.name?.split('.').pop()?.toUpperCase() || '?';
+										return (
+											<Badge key={i} fontSize={0} tone="primary">
+												{ext}: {f.name}
+											</Badge>
+										);
+									})}
+								</Flex>
+							</Stack>
+						)}
+
 						{/* Title */}
 						<Stack space={2}>
 							<Label size={0}>Font Title</Label>
@@ -211,6 +230,9 @@ const FontReviewCard = memo(function FontReviewCard({ entry, dispatch, allExpand
 										onBlur={handleWeightNameBlur}
 										fontSize={1}
 									/>
+									{entry.decisions?.weightName && (
+										<Text size={0} muted>Source: {entry.decisions.weightName.detected ? `detected "${entry.decisions.weightName.detected}"` : 'none'}</Text>
+									)}
 								</Stack>
 							</Box>
 						</Flex>
@@ -237,6 +259,9 @@ const FontReviewCard = memo(function FontReviewCard({ entry, dispatch, allExpand
 										onChange={handleSubfamilyChange}
 										fontSize={1}
 									/>
+									{entry.decisions?.subfamily && (
+										<Text size={0} muted>{sourceHint(entry.decisions.subfamily)}{entry.decisions.subfamily.detected ? ` → "${entry.decisions.subfamily.detected}"` : ''}</Text>
+									)}
 								</Stack>
 							</Box>
 						</Flex>
