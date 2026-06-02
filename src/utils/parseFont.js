@@ -4,9 +4,8 @@ import pako from 'pako';
 
 // Set decompressor globals BEFORE lib-font is imported.
 // lib-font reads globalThis.pako and globalThis.unbrotli at module evaluation time
-// (top of woff.js / woff2.js), not at parse time. If these are not set before the
-// first import of lib-font, WOFF/WOFF2 decompression silently falls back to Node zlib
-// (unavailable in browser) and parsing fails.
+// (top of woff.js / woff2.js), not at parse time. These must be set before lib-font
+// is first evaluated, so we use dynamic import() below to guarantee ordering.
 globalThis.pako = pako;
 
 // unbrotli is a UMD that sets globalThis.unbrotli as a side effect on evaluation.
@@ -14,8 +13,19 @@ globalThis.pako = pako;
 // lib-font's exports map (ERR_PACKAGE_PATH_NOT_EXPORTED).
 import '../vendor/unbrotli.js';
 
-// NOW safe to import lib-font — globals are set.
-import { Font } from 'lib-font';
+// Lazy-loaded lib-font Font constructor — resolved on first parseFont() call.
+// Using dynamic import() guarantees globalThis.pako and globalThis.unbrotli are
+// set before lib-font evaluates, which static imports cannot guarantee in ESM.
+let _Font = null;
+
+/** Returns the lib-font Font constructor, loading it on first call */
+async function getFont() {
+	if (!_Font) {
+		const mod = await import('lib-font');
+		_Font = mod.Font;
+	}
+	return _Font;
+}
 
 /** Maximum font file size accepted for parsing (50 MB) */
 const MAX_FONT_FILE_SIZE = 50 * 1024 * 1024;
@@ -33,6 +43,8 @@ export async function parseFont(buffer, filename) {
 	if (buffer.byteLength > MAX_FONT_FILE_SIZE) {
 		throw new Error(`Font file exceeds ${MAX_FONT_FILE_SIZE / 1024 / 1024}MB limit: ${filename} (${(buffer.byteLength / 1024 / 1024).toFixed(1)}MB)`);
 	}
+
+	const Font = await getFont();
 
 	return new Promise((resolve, reject) => {
 		const font = new Font('font', { skipStyleSheet: true });

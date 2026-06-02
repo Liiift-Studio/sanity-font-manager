@@ -221,6 +221,7 @@ export default function UploadStep2Review({
 								key={entry.tempId}
 								entry={entry}
 								dispatch={dispatch}
+								allExpanded={allExpanded}
 							/>
 						))}
 					</Stack>

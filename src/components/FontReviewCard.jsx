@@ -1,6 +1,6 @@
 // Per-font collapsible review card — inline editing for title, weight, style, subfamily, documentId with decision source hints
 
-import React, { useState, useCallback, memo } from 'react';
+import React, { useState, useCallback, useEffect, memo } from 'react';
 import { Card, Stack, Flex, Box, Text, TextInput, Badge, Button, Select, Tooltip, Label } from '@sanity/ui';
 import { ChevronDownIcon, ChevronRightIcon, TrashIcon, ResetIcon, InfoOutlineIcon } from '@sanity/icons';
 import { FONT_STATUS, RECOMMENDATION } from '../utils/planTypes';
@@ -11,8 +11,13 @@ import ExistingDocumentResolver from './ExistingDocumentResolver';
  * Wrapped in React.memo — receives only its own font entry slice, not the full plan.
  * Dispatches user edit actions on blur, not on every keystroke.
  */
-const FontReviewCard = memo(function FontReviewCard({ entry, dispatch }) {
+const FontReviewCard = memo(function FontReviewCard({ entry, dispatch, allExpanded }) {
 	const [expanded, setExpanded] = useState(false);
+
+	// Sync with allExpanded toggle from BulkActions
+	useEffect(() => {
+		setExpanded(allExpanded);
+	}, [allExpanded]);
 	// Local state for typing — dispatches on blur
 	const [localTitle, setLocalTitle] = useState(entry.title);
 	const [localDocId, setLocalDocId] = useState(entry.documentId);
