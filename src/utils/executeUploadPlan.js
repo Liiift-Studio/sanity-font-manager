@@ -274,7 +274,7 @@ async function executeSingleFont({ entry, plan, client, progress, onProgress }) 
 				Object.assign(fileInput, updatedFileInput);
 
 				if (onProgress) {
-					onProgress({ type: 'css-generated', tempId: entry.tempId });
+					onProgress({ type: 'css-generated', tempId: entry.tempId, fontProgress: { ...fontProgress } });
 				}
 			}
 		} catch (err) {
@@ -307,7 +307,7 @@ async function executeSingleFont({ entry, plan, client, progress, onProgress }) 
 				});
 
 				if (onProgress) {
-					onProgress({ type: 'metadata-generated', tempId: entry.tempId });
+					onProgress({ type: 'metadata-generated', tempId: entry.tempId, fontProgress: { ...fontProgress } });
 				}
 			}
 		} catch (err) {
@@ -380,7 +380,7 @@ async function executeSingleFont({ entry, plan, client, progress, onProgress }) 
 		fontProgress.status = EXECUTION_STATUS.COMPLETE;
 
 		if (onProgress) {
-			onProgress({ type: 'document-created', tempId: entry.tempId, isNew });
+			onProgress({ type: 'document-created', tempId: entry.tempId, isNew, fontProgress: { ...fontProgress } });
 		}
 
 		return {

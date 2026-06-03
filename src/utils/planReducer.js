@@ -53,8 +53,8 @@ export function planReducer(state, action) {
 		}
 
 		case 'SET_SETTINGS': {
-			if (state.phase !== PLAN_PHASE.IDLE) {
-				console.warn('SET_SETTINGS blocked — settings locked after processing starts');
+			if (state.phase !== PLAN_PHASE.IDLE && state.phase !== PLAN_PHASE.REVIEWING && state.phase !== PLAN_PHASE.READY) {
+				console.warn('SET_SETTINGS blocked — settings locked during processing/execution');
 				return state;
 			}
 			return { ...state, settings: { ...state.settings, ...action.settings } };
@@ -135,16 +135,20 @@ export function planReducer(state, action) {
 		// ---------------------------------------------------------------
 
 		case 'SET_FONT_TITLE': {
-			const { tempId, title } = action;
+			const { tempId, title, source: titleSource } = action;
 			const font = state.fonts[tempId];
 			if (!font) return state;
+
+			// When source is provided (e.g. from clicking a name table suggestion), preserve it.
+			// The display layer appends "(user override)" — don't bake it into the source string.
+			const newSource = titleSource || 'user-override';
 
 			const updated = {
 				...font,
 				title,
 				decisions: {
 					...font.decisions,
-					title: { ...font.decisions.title, userOverride: title, source: 'user-override' },
+					title: { ...font.decisions.title, userOverride: title, source: newSource },
 				},
 			};
 

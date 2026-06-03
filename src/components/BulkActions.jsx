@@ -1,22 +1,20 @@
-// Bulk actions bar — expand/collapse all, accept suggestions, search/filter
+// Bulk actions bar — expand/collapse all, search, filter with counts
 
-import React, { useState, useCallback, useMemo } from 'react';
-import { Flex, Box, Button, TextInput, Select, Text } from '@sanity/ui';
+import React, { useMemo } from 'react';
+import { Flex, Box, Button, TextInput, Select, Text, Label } from '@sanity/ui';
 import { SearchIcon } from '@sanity/icons';
+import { FONT_STATUS, RECOMMENDATION } from '../utils/planTypes';
+
+/** Determines whether a font entry will create or update a document */
+function isUpdateEntry(entry) {
+	const d = entry.decisions?.existingDocument;
+	const choice = d?.userChoice;
+	const rec = d?.recommendation;
+	return choice === 'update' || (!choice && (rec === RECOMMENDATION.USE_EXACT || rec === RECOMMENDATION.USE_CANDIDATE));
+}
 
 /**
  * Sticky bulk actions bar for the review step.
- *
- * @param {object} props
- * @param {object} props.fonts - Map of tempId → FontPlanEntry
- * @param {function} props.dispatch - Plan reducer dispatch
- * @param {string} props.searchQuery - Current search text
- * @param {function} props.onSearchChange - Called with new search text
- * @param {string} props.filterBy - Current filter value
- * @param {function} props.onFilterChange - Called with new filter value
- * @param {boolean} props.allExpanded - Whether all cards are expanded
- * @param {function} props.onToggleExpandAll - Toggle expand/collapse all
- * @param {string[]} props.visibleTempIds - Currently visible font tempIds (after search/filter)
  */
 export default function BulkActions({
 	fonts,
@@ -29,21 +27,38 @@ export default function BulkActions({
 	onToggleExpandAll,
 	visibleTempIds,
 }) {
-	const fontCount = Object.keys(fonts).length;
+	const fontEntries = useMemo(() => Object.values(fonts), [fonts]);
+	const fontCount = fontEntries.length;
 	const visibleCount = visibleTempIds.length;
 
-	const handleAcceptSuggestions = useCallback(() => {
-		dispatch({ type: 'ACCEPT_ALL_SUGGESTIONS', scope: visibleTempIds });
-	}, [dispatch, visibleTempIds]);
+	// Compute counts for each filter category
+	const filterCounts = useMemo(() => {
+		const createCount = fontEntries.filter(f => f.status !== FONT_STATUS.ERROR && !isUpdateEntry(f)).length;
+		const updateCount = fontEntries.filter(f => f.status !== FONT_STATUS.ERROR && isUpdateEntry(f)).length;
+		const errorCount = fontEntries.filter(f => f.status === FONT_STATUS.ERROR).length;
+		const conflictCount = fontEntries.filter(f => f._idConflict).length;
+		const italicCount = fontEntries.filter(f => f.style === 'Italic' && f.status !== FONT_STATUS.ERROR).length;
+		const regularCount = fontEntries.filter(f => f.style === 'Regular' && f.status !== FONT_STATUS.ERROR).length;
 
-	// Collect unique subfamilies for filter dropdown
-	const subfamilies = useMemo(() => {
-		const subs = new Set();
-		for (const font of Object.values(fonts)) {
-			if (font.subfamily) subs.add(font.subfamily);
-		}
-		return [...subs].sort();
-	}, [fonts]);
+		// Subfamily counts
+		const subfamilyCounts = {};
+		fontEntries.forEach(f => {
+			if (f.status === FONT_STATUS.ERROR) return;
+			const sf = f.subfamily || 'Regular';
+			subfamilyCounts[sf] = (subfamilyCounts[sf] || 0) + 1;
+		});
+
+		return { createCount, updateCount, errorCount, conflictCount, italicCount, regularCount, subfamilyCounts };
+	}, [fontEntries]);
+
+	const subfamilies = useMemo(() =>
+		Object.keys(filterCounts.subfamilyCounts).sort((a, b) => {
+			if (a === 'Regular') return -1;
+			if (b === 'Regular') return 1;
+			return a.localeCompare(b);
+		}),
+		[filterCounts]
+	);
 
 	return (
 		<Flex gap={2} align="center" wrap="wrap" style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--card-bg-color)', paddingBottom: 8, paddingTop: 4 }}>
@@ -58,41 +73,27 @@ export default function BulkActions({
 				/>
 			</Box>
 
-			{/* Filter by action type */}
-			<Select value={filterBy} onChange={(e) => onFilterChange(e.target.value)} fontSize={1} style={{ width: 130 }}>
-				<option value="all">All ({fontCount})</option>
-				<option value="create">Create</option>
-				<option value="update">Update</option>
-				<option value="error">Errors</option>
-				<option value="conflict">Conflicts</option>
-				{subfamilies.map(sf => (
-					<option key={sf} value={`sf:${sf}`}>{sf}</option>
-				))}
-			</Select>
+			{/* Filter by */}
+			<Flex align="center" gap={1}>
+				<Label size={0} style={{ whiteSpace: 'nowrap' }}>Filter</Label>
+				<Select value={filterBy} onChange={(e) => onFilterChange(e.target.value)} fontSize={1} style={{ minWidth: 140 }}>
+					<option value="all">All ({fontCount})</option>
+					{filterCounts.createCount > 0 && <option value="create">Create ({filterCounts.createCount})</option>}
+					{filterCounts.updateCount > 0 && <option value="update">Update ({filterCounts.updateCount})</option>}
+					{filterCounts.regularCount > 0 && <option value="style:regular">Regular ({filterCounts.regularCount})</option>}
+					{filterCounts.italicCount > 0 && <option value="style:italic">Italic ({filterCounts.italicCount})</option>}
+					{filterCounts.errorCount > 0 && <option value="error">Errors ({filterCounts.errorCount})</option>}
+					{filterCounts.conflictCount > 0 && <option value="conflict">Conflicts ({filterCounts.conflictCount})</option>}
+					{subfamilies.length > 1 && subfamilies.map(sf => (
+						<option key={sf} value={`sf:${sf}`}>{sf} ({filterCounts.subfamilyCounts[sf]})</option>
+					))}
+				</Select>
+			</Flex>
 
 			{/* Visible count */}
 			{visibleCount !== fontCount && (
 				<Text size={0} muted>{visibleCount} of {fontCount}</Text>
 			)}
-
-			{/* Expand / Collapse */}
-			<Button
-				mode="ghost"
-				fontSize={0}
-				padding={2}
-				text={allExpanded ? 'Collapse All' : 'Expand All'}
-				onClick={onToggleExpandAll}
-			/>
-
-			{/* Accept suggestions for visible */}
-			<Button
-				mode="ghost"
-				tone="positive"
-				fontSize={0}
-				padding={2}
-				text={`Accept Suggestions (${visibleCount})`}
-				onClick={handleAcceptSuggestions}
-			/>
 		</Flex>
 	);
 }

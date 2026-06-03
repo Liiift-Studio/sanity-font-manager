@@ -87,7 +87,7 @@ export async function buildUploadPlan({
 
 				// Add to subfamily group
 				if (!entry.variableFont || entry.subfamily) {
-					const sfName = entry.subfamily || 'default';
+					const sfName = entry.subfamily;
 					if (!plan.subfamilyGroups[sfName]) {
 						plan.subfamilyGroups[sfName] = { title: sfName, fontIds: [] };
 					}
@@ -214,6 +214,14 @@ async function buildFontPlanEntry({
 	const weightSource = usWeightClass ? 'os2-usWeightClass' : 'keyword-match';
 	const matchedKeyword = usWeightClass ? null : weightName;
 
+	// Determine weight name source — nameId17 (preferredSubfamily) or nameId2 (fontSubfamily)
+	const nameId17 = getNameString(font, 17);
+	const weightNameSource = variableFont
+		? 'variable-font-empty'
+		: nameId17
+			? 'nameId17-preferredSubfamily'
+			: 'nameId2-fontSubfamily';
+
 	// Determine style source
 	const italicAngle = getItalicAngle(font);
 	const fullName = getNameString(font, 4);
@@ -229,13 +237,15 @@ async function buildFontPlanEntry({
 		}
 	}
 
-	// Determine subfamily source
-	const preferredFamily = getNameString(font, 16);
+	// Determine subfamily source — mirrors the logic in extractFontMetadata
+	const familyNameRaw = getNameString(font, 1);
+	const nameId4Remainder = fullName ? fullName.replace(typefaceTitle.trim(), '').trim() : '';
+	const nameId1Remainder = familyNameRaw ? familyNameRaw.replace(typefaceTitle.trim(), '').trim() : '';
 	let subfamilySource = 'default-empty';
-	if (preferredFamily && subfamilyName) {
-		subfamilySource = 'preferredFamily-subtraction';
-	} else if (subfamilyName) {
-		subfamilySource = 'fullName-subtraction';
+	if (nameId4Remainder && subfamilyName) {
+		subfamilySource = 'nameId4-subtraction';
+	} else if (nameId1Remainder && subfamilyName) {
+		subfamilySource = 'nameId1-subtraction';
 	}
 
 	// Build decisions audit trail
@@ -248,6 +258,7 @@ async function buildFontPlanEntry({
 		weightSource,
 		matchedKeyword,
 		weightName,
+		weightNameSource,
 		style,
 		styleSource,
 		styleReason,
@@ -287,6 +298,10 @@ async function buildFontPlanEntry({
 	const metrics = getFontMetrics(font);
 	const axes = getVariationAxes(font);
 
+	// Default empty subfamily to "Regular" — matches Regenerate Subfamilies behavior
+	const finalSubfamily = variableFont ? '' : (subfamilyName || 'Regular');
+	console.log(`[buildFontPlanEntry] "${finalTitle}" → subfamily: "${subfamilyName}" → final: "${finalSubfamily}" (variableFont: ${variableFont})`);
+
 	return {
 		tempId,
 		files: [file],
@@ -296,7 +311,7 @@ async function buildFontPlanEntry({
 		weight,
 		weightName,
 		style,
-		subfamily: subfamilyName,
+		subfamily: finalSubfamily,
 		variableFont,
 		originalFilename,
 		decisions,

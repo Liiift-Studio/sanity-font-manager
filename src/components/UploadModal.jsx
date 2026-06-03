@@ -13,7 +13,7 @@ import UploadSummary from './UploadSummary';
 
 /** Step labels for the step indicator */
 const STEPS = [
-	{ key: 1, label: 'Settings' },
+	{ key: 1, label: 'Upload Files' },
 	{ key: 2, label: 'Review' },
 	{ key: 3, label: 'Upload' },
 ];
@@ -184,7 +184,7 @@ export default function UploadModal({
 												? 'var(--card-badge-positive-bg-color)'
 												: 'var(--card-muted-bg-color)',
 										color: isActive || isCompleted
-											? 'var(--card-badge-primary-fg-color)'
+											? '#fff'
 											: 'var(--card-muted-fg-color)',
 										textAlign: 'center',
 										transition: 'background 0.15s ease',
@@ -206,7 +206,7 @@ export default function UploadModal({
 			}
 			width={2}
 			onClose={isExecuting ? undefined : handleClose}
-			onClickOutside={isExecuting ? undefined : handleClose}
+			onClickOutside={() => {}}
 		>
 			<Box padding={4}>
 				{/* Step 1: Settings & File Selection */}

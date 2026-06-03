@@ -1,8 +1,8 @@
-// Step 3 — Upload execution with per-font progress (skeleton — full polish in Phase C.18)
+// Step 3 — Upload execution with per-font progress
 
-import React, { useEffect, useReducer, useRef, useState } from 'react';
-import { Box, Stack, Flex, Text, Card, Spinner, Badge, Button } from '@sanity/ui';
-import { WarningOutlineIcon } from '@sanity/icons';
+import React, { useEffect, useReducer, useRef, useState, useMemo } from 'react';
+import { Box, Stack, Flex, Text, Card, Spinner, Badge } from '@sanity/ui';
+import { WarningOutlineIcon, CheckmarkCircleIcon } from '@sanity/icons';
 import { executeUploadPlan } from '../utils/executeUploadPlan';
 import { executionReducer, createInitialExecutionState } from '../utils/executionReducer';
 import { EXECUTION_STATUS } from '../utils/planTypes';
@@ -34,6 +34,22 @@ export default function UploadStep3Execute({
 	const timerRef = useRef(null);
 	const wakeLockRef = useRef(null);
 
+	// Build the execution plan — filter to only failed fonts when retrying
+	const executionPlan = useMemo(() => {
+		if (!retryTempIds) return plan;
+		return {
+			...plan,
+			fonts: Object.fromEntries(
+				Object.entries(plan.fonts).filter(([tempId]) => retryTempIds.includes(tempId))
+			),
+		};
+	}, [plan, retryTempIds]);
+
+	const fontEntries = useMemo(() =>
+		Object.values(executionPlan.fonts).filter(f => f.status !== 'error'),
+		[executionPlan]
+	);
+
 	// Start execution once on mount
 	useEffect(() => {
 		if (startedRef.current) return;
@@ -48,16 +64,6 @@ export default function UploadStep3Execute({
 			.catch(() => {});
 
 		execDispatch({ type: 'SET_EXECUTION_STATUS', status: 'uploading' });
-
-		// When retrying, filter plan to only include failed fonts
-		const executionPlan = retryTempIds
-			? {
-				...plan,
-				fonts: Object.fromEntries(
-					Object.entries(plan.fonts).filter(([tempId]) => retryTempIds.includes(tempId))
-				),
-			}
-			: plan;
 
 		executeUploadPlan({
 			plan: executionPlan,
@@ -92,7 +98,11 @@ export default function UploadStep3Execute({
 			clearInterval(timerRef.current);
 			wakeLockRef.current?.release().catch(() => {});
 			execDispatch({ type: 'SET_EXECUTION_ERROR', error: err.message });
-			const errorResult = { success: false, created: 0, updated: 0, failed: 1, skipped: 0, failedFonts: [{ title: 'Unknown', error: err.message, failedAt: 'unknown' }], fontRefs: [], variableRefs: [], typefacePatchError: err.message };
+			const errorResult = {
+				success: false, created: 0, updated: 0, failed: 1, skipped: 0,
+				failedFonts: [{ title: 'Unknown', tempId: 'unknown', error: err.message, failedAt: 'unknown' }],
+				fontRefs: [], variableRefs: [], typefacePatchError: err.message,
+			};
 			setResult(errorResult);
 			onComplete(errorResult);
 		});
@@ -103,9 +113,8 @@ export default function UploadStep3Execute({
 		};
 	}, []);
 
-	const fontEntries = Object.values(plan.fonts).filter(f => f.status !== 'error');
 	const completedCount = Object.values(execState.progress).filter(p =>
-		p.status === EXECUTION_STATUS.COMPLETE
+		p.status === EXECUTION_STATUS.COMPLETE || p.status === EXECUTION_STATUS.ERROR
 	).length;
 
 	return (
@@ -114,7 +123,12 @@ export default function UploadStep3Execute({
 			<Card border padding={3} radius={2}>
 				<Stack space={3}>
 					<Flex align="center" gap={3}>
-						{execState.status !== 'complete' && execState.status !== 'error' && <Spinner />}
+						{execState.status === 'complete'
+							? <CheckmarkCircleIcon style={{ color: '#43b649', fontSize: 20 }} />
+							: execState.status === 'error'
+								? <WarningOutlineIcon style={{ color: 'var(--card-badge-critical-bg-color)', fontSize: 20 }} />
+								: <Spinner />
+						}
 						<Text size={1} weight="semibold">
 							{execState.status === 'patching-typeface'
 								? 'Updating typeface document...'
@@ -166,31 +180,31 @@ export default function UploadStep3Execute({
 
 						return (
 							<Card key={entry.tempId} border radius={1} padding={2}>
-								<Flex align="center" justify="space-between" gap={2}>
+								<Flex align="center" gap={2}>
 									<Text size={1} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
 										{entry.title}
 									</Text>
-									<Flex gap={1} align="center">
+									<Box style={{ width: 120, flexShrink: 0, textAlign: 'right' }}>
 										{status === EXECUTION_STATUS.QUEUED && (
 											<Badge mode="outline" fontSize={0}>Queued</Badge>
 										)}
 										{status === EXECUTION_STATUS.UPLOADING_ASSETS && (
-											<>
-												<Spinner style={{ width: 12, height: 12 }} />
+											<Flex gap={1} align="center" justify="flex-end">
 												<Text size={0} muted>{progress?.currentFile || 'Uploading...'}</Text>
-											</>
+												<Spinner style={{ width: 12, height: 12 }} />
+											</Flex>
 										)}
 										{(status === EXECUTION_STATUS.GENERATING_CSS || status === EXECUTION_STATUS.GENERATING_METADATA) && (
-											<>
-												<Spinner style={{ width: 12, height: 12 }} />
+											<Flex gap={1} align="center" justify="flex-end">
 												<Text size={0} muted>{status === EXECUTION_STATUS.GENERATING_CSS ? 'CSS' : 'Metadata'}</Text>
-											</>
+												<Spinner style={{ width: 12, height: 12 }} />
+											</Flex>
 										)}
 										{status === EXECUTION_STATUS.CREATING_DOCUMENT && (
-											<>
-												<Spinner style={{ width: 12, height: 12 }} />
+											<Flex gap={1} align="center" justify="flex-end">
 												<Text size={0} muted>Creating doc</Text>
-											</>
+												<Spinner style={{ width: 12, height: 12 }} />
+											</Flex>
 										)}
 										{status === EXECUTION_STATUS.COMPLETE && (
 											<Badge tone="positive" fontSize={0}>Done</Badge>
@@ -198,7 +212,7 @@ export default function UploadStep3Execute({
 										{status === EXECUTION_STATUS.ERROR && (
 											<Badge tone="critical" fontSize={0}>Failed</Badge>
 										)}
-									</Flex>
+									</Box>
 								</Flex>
 								{status === EXECUTION_STATUS.ERROR && progress?.error && (
 									<Text size={0} muted style={{ marginTop: 4 }}>{progress.error}</Text>

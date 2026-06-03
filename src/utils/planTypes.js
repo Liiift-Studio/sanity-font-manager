@@ -83,6 +83,7 @@ export function backoffWithJitter(attempt) {
  * @param {string} params.weightSource
  * @param {string|null} params.matchedKeyword
  * @param {string} params.weightName
+ * @param {string} params.weightNameSource
  * @param {string} params.style
  * @param {string} params.styleSource
  * @param {string} params.styleReason
@@ -100,6 +101,7 @@ export function createFontDecisions({
 	weightSource = 'default-400',
 	matchedKeyword = null,
 	weightName = '',
+	weightNameSource = 'nameId17-preferredSubfamily',
 	style = 'Regular',
 	styleSource = 'default-regular',
 	styleReason = '',
@@ -128,6 +130,7 @@ export function createFontDecisions({
 			userOverride: null,
 		},
 		weightName: {
+			source: weightNameSource,
 			detected: weightName,
 			userOverride: null,
 		},

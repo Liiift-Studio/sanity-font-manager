@@ -71,9 +71,9 @@ describe('extractWeightName', () => {
 		expect(extractWeightName(font, [])).toBe('Light');
 	});
 
-	it('returns "Variable" for variable fonts', () => {
+	it('returns empty string for variable fonts', () => {
 		const font = mockFont({ variationAxes: { wght: { min: 100, max: 900 } } });
-		expect(extractWeightName(font, [])).toBe('Variable');
+		expect(extractWeightName(font, [])).toBe('');
 	});
 
 	it('strips "Italic" from the weight name', () => {

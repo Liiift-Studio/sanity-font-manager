@@ -106,8 +106,14 @@ describe('SET_SETTINGS', () => {
 		expect(result.settings.price).toBe(0);
 	});
 
-	it('blocks settings changes during reviewing phase', () => {
+	it('allows settings changes during reviewing phase', () => {
 		const state = { ...createEmptyPlan(), phase: PLAN_PHASE.REVIEWING };
+		const result = planReducer(state, { type: 'SET_SETTINGS', settings: { price: 50 } });
+		expect(result.settings.price).toBe(50);
+	});
+
+	it('blocks settings changes during executing phase', () => {
+		const state = { ...createEmptyPlan(), phase: PLAN_PHASE.EXECUTING };
 		const result = planReducer(state, { type: 'SET_SETTINGS', settings: { price: 50 } });
 		expect(result.settings.price).toBe(0);
 	});

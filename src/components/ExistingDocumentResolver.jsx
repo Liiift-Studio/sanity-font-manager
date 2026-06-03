@@ -1,40 +1,42 @@
-// Existing document resolution UI — create/update decision with candidate selection
+// Existing document resolution UI — toggle between update existing and create new
 
 import React from 'react';
-import { Card, Stack, Flex, Text, Badge, Button, Label } from '@sanity/ui';
+import { Card, Stack, Flex, Text, Badge, Button, Label, Switch, Tooltip, Box } from '@sanity/ui';
+import { InfoOutlineIcon } from '@sanity/icons';
 import { RECOMMENDATION } from '../utils/planTypes';
 
 /**
- * Displays the existing document resolution decision and lets the user
- * choose between creating a new document or updating an existing one.
+ * Displays the existing document resolution decision as a toggle.
+ * When "update" is on, shows the matched document. When off, indicates a new document will be created.
  */
 export default function ExistingDocumentResolver({ decision, tempId, dispatch }) {
 	if (!decision) return null;
 
 	const { recommendation, exact, candidates, userChoice, selectedCandidate, lookupFailed } = decision;
 
-	// Derive the effective action
 	const effectiveAction = userChoice ||
 		(recommendation === RECOMMENDATION.USE_EXACT || recommendation === RECOMMENDATION.USE_CANDIDATE ? 'update' : 'create');
+	const isUpdating = effectiveAction === 'update';
+	const hasMatch = exact || candidates?.length > 0;
 
-	const handleSetAction = (action) => {
-		dispatch({ type: 'SET_FONT_ACTION', tempId, decision: action });
+	const handleToggle = () => {
+		dispatch({ type: 'SET_FONT_ACTION', tempId, decision: isUpdating ? 'create' : 'update' });
 	};
 
 	const handleSelectCandidate = (candidate) => {
 		dispatch({ type: 'SET_FONT_CANDIDATE', tempId, candidate });
 	};
 
-	// Lookup failed — show warning
+	// Lookup failed
 	if (lookupFailed) {
 		return (
 			<Card tone="caution" border padding={2} radius={1}>
-				<Text size={0}>Could not check for existing documents — will create new. Network or permissions issue.</Text>
+				<Text size={0}>Could not check for existing documents — will create new.</Text>
 			</Card>
 		);
 	}
 
-	// No match — create new
+	// No match at all — just creating
 	if (recommendation === RECOMMENDATION.CREATE && !userChoice) {
 		return (
 			<Stack space={2}>
@@ -46,96 +48,61 @@ export default function ExistingDocumentResolver({ decision, tempId, dispatch })
 		);
 	}
 
-	// Exact match
-	if (recommendation === RECOMMENDATION.USE_EXACT && exact) {
+	// Has a match (exact, candidate, or ambiguous) — show toggle
+	if (hasMatch) {
+		const matchDoc = exact || selectedCandidate || candidates?.[0];
+		const matchType = exact ? 'Exact Match' : candidates?.length > 1 ? 'Multiple Matches' : 'Likely Match';
+		const matchTone = exact ? 'positive' : 'caution';
+
 		return (
 			<Stack space={2}>
 				<Label size={0}>Existing Document</Label>
-				<Card tone="positive" border padding={2} radius={1}>
+
+				{/* Toggle */}
+				<Flex align="center" gap={2}>
+					<Switch
+						checked={isUpdating}
+						onChange={handleToggle}
+						style={{ cursor: 'pointer' }}
+					/>
+					<Stack space={1}>
+						<Text size={1} weight="semibold">
+							{isUpdating ? 'Update existing document' : 'Create new document'}
+						</Text>
+						<Text size={0} muted>
+							{isUpdating
+								? 'Files will be uploaded to the matched document below.'
+								: 'A new document will be created. You may need to update the Document ID above to avoid conflicts.'
+							}
+						</Text>
+					</Stack>
+				</Flex>
+
+				{/* Match card — greyed out when not updating */}
+				<Card
+					tone={isUpdating ? matchTone : 'default'}
+					border
+					padding={2}
+					radius={1}
+					style={{ opacity: isUpdating ? 1 : 0.5, transition: 'opacity 0.15s ease' }}
+				>
 					<Stack space={2}>
 						<Flex align="center" gap={2}>
-							<Badge tone="positive" fontSize={0}>Exact Match</Badge>
-							<Text size={1} style={{ fontFamily: 'monospace' }}>{exact._id}</Text>
+							<Badge tone={isUpdating ? matchTone : 'default'} fontSize={0}>{matchType}</Badge>
+							<Text size={1} style={{ fontFamily: 'monospace' }}>{matchDoc?._id}</Text>
 						</Flex>
 						<Text size={0} muted>
-							{exact.title} · {exact.weightName} · {exact.style}
+							{matchDoc?.title} · {matchDoc?.weightName} · {matchDoc?.style}
+							{matchDoc?.subfamily ? ` · ${matchDoc.subfamily}` : ''}
 						</Text>
-						<Flex gap={2}>
-							<Button
-								mode={effectiveAction === 'update' ? 'default' : 'ghost'}
-								tone={effectiveAction === 'update' ? 'positive' : 'default'}
-								text="Update this document"
-								fontSize={0}
-								padding={2}
-								onClick={() => handleSetAction('update')}
-							/>
-							<Button
-								mode={effectiveAction === 'create' ? 'default' : 'ghost'}
-								tone={effectiveAction === 'create' ? 'primary' : 'default'}
-								text="Create new instead"
-								fontSize={0}
-								padding={2}
-								onClick={() => handleSetAction('create')}
-							/>
-						</Flex>
 					</Stack>
 				</Card>
-			</Stack>
-		);
-	}
 
-	// Single candidate
-	if (recommendation === RECOMMENDATION.USE_CANDIDATE && candidates.length === 1) {
-		const candidate = candidates[0];
-		return (
-			<Stack space={2}>
-				<Label size={0}>Existing Document</Label>
-				<Card tone="caution" border padding={2} radius={1}>
-					<Stack space={2}>
-						<Flex align="center" gap={2}>
-							<Badge tone="caution" fontSize={0}>Likely Match</Badge>
-							<Text size={1} style={{ fontFamily: 'monospace' }}>{candidate._id}</Text>
-						</Flex>
-						<Text size={0} muted>
-							{candidate.title} · {candidate.weightName} · {candidate.style}
-							{candidate.subfamily ? ` · ${candidate.subfamily}` : ''}
-						</Text>
-						<Flex gap={2}>
-							<Button
-								mode={effectiveAction === 'update' ? 'default' : 'ghost'}
-								tone={effectiveAction === 'update' ? 'positive' : 'default'}
-								text="Update this document"
-								fontSize={0}
-								padding={2}
-								onClick={() => handleSelectCandidate(candidate)}
-							/>
-							<Button
-								mode={effectiveAction === 'create' ? 'default' : 'ghost'}
-								tone={effectiveAction === 'create' ? 'primary' : 'default'}
-								text="Create new instead"
-								fontSize={0}
-								padding={2}
-								onClick={() => handleSetAction('create')}
-							/>
-						</Flex>
-					</Stack>
-				</Card>
-			</Stack>
-		);
-	}
-
-	// Ambiguous — multiple candidates
-	if (recommendation === RECOMMENDATION.AMBIGUOUS && candidates.length > 1) {
-		return (
-			<Stack space={2}>
-				<Label size={0}>Existing Document</Label>
-				<Card tone="caution" border padding={2} radius={1}>
-					<Stack space={3}>
-						<Flex align="center" gap={2}>
-							<Badge tone="caution" fontSize={0}>Multiple Matches</Badge>
-							<Text size={0} muted>{candidates.length} potential matches found</Text>
-						</Flex>
-						{candidates.map((candidate, i) => (
+				{/* Multiple candidates — show selector when updating */}
+				{isUpdating && candidates?.length > 1 && (
+					<Stack space={1}>
+						<Text size={0} muted>Select which document to update:</Text>
+						{candidates.map((candidate) => (
 							<Card
 								key={candidate._id}
 								border
@@ -151,6 +118,7 @@ export default function ExistingDocumentResolver({ decision, tempId, dispatch })
 										name={`candidate-${tempId}`}
 										checked={selectedCandidate?._id === candidate._id}
 										onChange={() => handleSelectCandidate(candidate)}
+										style={{ cursor: 'pointer' }}
 									/>
 									<Stack space={1} style={{ flex: 1 }}>
 										<Text size={1} style={{ fontFamily: 'monospace' }}>{candidate._id}</Text>
@@ -162,39 +130,19 @@ export default function ExistingDocumentResolver({ decision, tempId, dispatch })
 								</Flex>
 							</Card>
 						))}
-						<Button
-							mode={effectiveAction === 'create' ? 'default' : 'ghost'}
-							tone="primary"
-							text="Create new document instead"
-							fontSize={0}
-							padding={2}
-							onClick={() => handleSetAction('create')}
-						/>
 					</Stack>
-				</Card>
+				)}
 			</Stack>
 		);
 	}
 
-	// User chose create after initially having a match
+	// User chose create after initially having a match (fallback)
 	if (userChoice === 'create') {
 		return (
 			<Stack space={2}>
 				<Label size={0}>Existing Document</Label>
 				<Card border padding={2} radius={1}>
-					<Flex align="center" justify="space-between">
-						<Text size={1}>Will create new document</Text>
-						{(exact || candidates.length > 0) && (
-							<Button
-								mode="ghost"
-								tone="positive"
-								text="Switch to update"
-								fontSize={0}
-								padding={2}
-								onClick={() => handleSetAction('update')}
-							/>
-						)}
-					</Flex>
+					<Text size={1}>Will create new document</Text>
 				</Card>
 			</Stack>
 		);

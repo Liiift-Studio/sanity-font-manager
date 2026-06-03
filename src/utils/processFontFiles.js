@@ -178,11 +178,19 @@ export const extractFontMetadata = (font, title, weightKeywordList, italicKeywor
 	const axes = getVariationAxes(font);
 	const variableFont = axes !== null;
 
-	const preferredFamily = getNameString(font, 16) || ttfFallbackMeta?.preferredFamily || '';
-	const subfamilyRaw = preferredFamily
-		? preferredFamily.replace(title.trim(), '').trim()
-		: '';
-	let subfamilyName = subfamilyRaw || (getNameString(font, 2) || ttfFallbackMeta?.subfamilyName || '').replace(title.trim(), '').trim();
+	// Subfamily detection — extract width/optical variant from name table.
+	// Primary: nameId4 (fullName) minus typeface title — the most complete name record,
+	// always contains width + weight (e.g. "Gear XXNarrow Regular" → "XXNarrow Regular").
+	// Fallback: nameId1 (familyName) minus typeface title — contains width but not always weight.
+	// processSubfamilyName then strips weight/italic keywords, leaving just the width variant.
+	// This matches the production logic that has been reliable across all foundry sites.
+	const trimmedTitle = title.trim();
+
+	const nameId4Remainder = fullName ? fullName.replace(trimmedTitle, '').trim() : '';
+	const nameId1 = getNameString(font, 1) || ttfFallbackMeta?.familyName || '';
+	const nameId1Remainder = nameId1 ? nameId1.replace(trimmedTitle, '').trim() : '';
+
+	let subfamilyName = nameId4Remainder || nameId1Remainder;
 
 	if (!preserveShortenedNames) {
 		subfamilyName = expandAbbreviations(subfamilyName);
@@ -197,8 +205,11 @@ export const extractFontMetadata = (font, title, weightKeywordList, italicKeywor
 	subfamilyName = processSubfamilyName(subfamilyName, weightKeywordList, italicKW, preserveShortenedNames);
 	fontTitle = formatFontTitle(fontTitle, preserveShortenedNames);
 
-	// Default to empty string, not 'Regular' — panel review correction
-	subfamilyName = subfamilyName.replace(/\s+/g, ' ').trim();
+	// Style-only names are not subfamilies — strip them
+	subfamilyName = subfamilyName
+		.replace(/\b(Italic|Slant|Slanted|Oblique|Backslant|Roman|Upright)\b/gi, '')
+		.replace(/\s+/g, ' ')
+		.trim();
 
 	if (subfamilyName !== '') {
 		weightName = weightName
@@ -211,11 +222,8 @@ export const extractFontMetadata = (font, title, weightKeywordList, italicKeywor
 		if (!fontTitle.toLowerCase().includes('vf')) {
 			fontTitle = fontTitle + ' VF';
 		}
-		// Only clear subfamily if font has an opsz axis with real range
-		const hasOpsz = axes?.opsz && axes.opsz.min !== axes.opsz.max;
-		if (hasOpsz) {
-			subfamilyName = '';
-		}
+		// Variable fonts are not placed in subfamilies — they go in the separate variableFont array
+		subfamilyName = '';
 	}
 
 	if (!(variableFont && fontTitle.toLowerCase().includes('italic'))) {
@@ -239,7 +247,7 @@ export const extractWeightName = (font, italicKW, ttfFallbackMeta = null) => {
 
 	const axes = getVariationAxes(font);
 	if (axes !== null) {
-		return 'Variable';
+		return '';
 	}
 
 	if (italicKW) {

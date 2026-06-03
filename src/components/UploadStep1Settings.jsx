@@ -1,9 +1,8 @@
-// Step 1 — Settings & file selection: price, toggles, drag-and-drop zone, file list
+// Step 1 — File upload: drag-and-drop zone, file list table, type breakdown with mismatch detection
 
-import React, { useState, useCallback, useRef } from 'react';
-import { Box, Flex, Grid, Stack, Text, Label, Switch, Button, Card, Tooltip } from '@sanity/ui';
-import { UploadIcon, TrashIcon, InfoOutlineIcon } from '@sanity/icons';
-import PriceInput from './PriceInput';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
+import { Box, Flex, Stack, Text, Button, Card, Badge } from '@sanity/ui';
+import { UploadIcon, TrashIcon } from '@sanity/icons';
 
 /** Accepted font file extensions */
 const ACCEPTED_EXTENSIONS = ['ttf', 'otf', 'woff', 'woff2', 'eot', 'svg'];
@@ -25,18 +24,16 @@ const sortFilesByType = (files) =>
 	});
 
 /**
- * Step 1 component — collects settings and files before processing.
+ * Step 1 component — file selection only. Settings are in Step 2.
  *
  * @param {object} props
  * @param {object} props.settings - Current plan settings
  * @param {function} props.onStartProcessing - Called with (sortedFiles, settings) when user clicks "Process Files"
  */
 export default function UploadStep1Settings({ settings, onStartProcessing }) {
-	const [inputPrice, setInputPrice] = useState(String(settings.price || 0));
-	const [preserveShortenedNames, setPreserveShortenedNames] = useState(settings.preserveShortenedNames ?? true);
-	const [preserveFileNames, setPreserveFileNames] = useState(settings.preserveFileNames ?? false);
 	const [pendingFiles, setPendingFiles] = useState([]);
 	const [isDragging, setIsDragging] = useState(false);
+	const [filterType, setFilterType] = useState(null);
 	const fileInputRef = useRef(null);
 
 	const handleFileSelect = useCallback((e) => {
@@ -61,25 +58,38 @@ export default function UploadStep1Settings({ settings, onStartProcessing }) {
 
 	const handleProcess = useCallback(() => {
 		const sorted = sortFilesByType(pendingFiles);
-		onStartProcessing(sorted, {
-			price: Number(inputPrice) || 0,
-			preserveShortenedNames,
-			preserveFileNames,
-		});
-	}, [pendingFiles, inputPrice, preserveShortenedNames, preserveFileNames, onStartProcessing]);
+		onStartProcessing(sorted, settings);
+	}, [pendingFiles, settings, onStartProcessing]);
 
-	const renderTooltipLabel = (label, description) => (
-		<Tooltip
-			content={<Box padding={2} style={{ maxWidth: 260 }}><Text size={1} style={{ lineHeight: 1.6 }}>{description}</Text></Box>}
-			placement="top"
-			portal
-		>
-			<Flex align="center" gap={1} style={{ cursor: 'default' }}>
-				<Label>{label}</Label>
-				<InfoOutlineIcon style={{ opacity: 0.5, display: 'block' }} />
-			</Flex>
-		</Tooltip>
-	);
+	/** Count files by extension and detect outliers (types whose count differs from the majority) */
+	const typeBreakdown = useMemo(() => {
+		const counts = {};
+		pendingFiles.forEach(f => {
+			const ext = f.name.split('.').pop().toLowerCase();
+			counts[ext] = (counts[ext] || 0) + 1;
+		});
+
+		const values = Object.values(counts);
+		if (values.length <= 1) return { counts, modeCount: 0, outlierExts: new Set() };
+
+		// Find the mode (most frequent count) — types matching the mode are normal, others are outliers
+		const freq = {};
+		values.forEach(v => { freq[v] = (freq[v] || 0) + 1; });
+		const modeCount = Number(Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0]);
+
+		const outlierExts = new Set();
+		Object.entries(counts).forEach(([ext, count]) => {
+			if (count !== modeCount) outlierExts.add(ext);
+		});
+
+		return { counts, modeCount, outlierExts };
+	}, [pendingFiles]);
+
+	/** Files filtered by the active type filter — displayed in upload order */
+	const displayedFiles = useMemo(() => {
+		if (!filterType) return pendingFiles;
+		return pendingFiles.filter(f => f.name.split('.').pop().toLowerCase() === filterType);
+	}, [pendingFiles, filterType]);
 
 	const dropZoneStyle = {
 		border: `2px dashed ${isDragging ? 'var(--card-focus-ring-color)' : 'var(--card-border-color)'}`,
@@ -92,38 +102,6 @@ export default function UploadStep1Settings({ settings, onStartProcessing }) {
 
 	return (
 		<Stack space={4}>
-			{/* Settings row */}
-			<Grid columns={[2]} gap={4}>
-				<Box>
-					<PriceInput
-						inputPrice={inputPrice}
-						handleInputChange={(e) => setInputPrice(e.target.value)}
-					/>
-				</Box>
-				<Stack space={3}>
-					<Flex align="center" gap={2}>
-						<Switch
-							checked={preserveShortenedNames}
-							onChange={(e) => setPreserveShortenedNames(e.target.checked)}
-						/>
-						{renderTooltipLabel(
-							'Preserve shortened names',
-							'Abbreviations in font names are kept as-is (e.g. "XNarrow" stays "XNarrow", "Bd" stays "Bd").'
-						)}
-					</Flex>
-					<Flex align="center" gap={2}>
-						<Switch
-							checked={preserveFileNames}
-							onChange={(e) => setPreserveFileNames(e.target.checked)}
-						/>
-						{renderTooltipLabel(
-							'Preserve file names',
-							'Original filename is used for the font title and document ID instead of the embedded font name metadata.'
-						)}
-					</Flex>
-				</Stack>
-			</Grid>
-
 			{/* Drop zone */}
 			<Box
 				onDragEnter={handleDragEnter}
@@ -169,13 +147,48 @@ export default function UploadStep1Settings({ settings, onStartProcessing }) {
 				)}
 			</Box>
 
-			{/* File list */}
+			{/* File breakdown + list */}
 			{pendingFiles.length > 0 && (
-				<Stack space={2}>
+				<Stack space={3}>
+					{/* Summary: total + type breakdown */}
 					<Flex align="center" justify="space-between">
-						<Text size={1} muted>
-							{pendingFiles.length} file{pendingFiles.length === 1 ? '' : 's'} selected
-						</Text>
+						<Flex align="center" gap={2}>
+							<Text size={1} weight="semibold">
+								{filterType
+									? `${displayedFiles.length} of ${pendingFiles.length} files (${filterType.toUpperCase()})`
+									: `${pendingFiles.length} file${pendingFiles.length === 1 ? '' : 's'}`
+								}
+							</Text>
+							<Flex gap={1}>
+								{TYPE_ORDER.filter(ext => typeBreakdown.counts[ext]).map(ext => {
+									const count = typeBreakdown.counts[ext];
+									const isOutlier = typeBreakdown.outlierExts.has(ext);
+									const isActive = filterType === ext;
+									return (
+										<Badge
+											key={ext}
+											tone={isOutlier ? 'critical' : isActive ? 'primary' : 'default'}
+											mode={isActive ? 'default' : isOutlier ? 'default' : 'outline'}
+											fontSize={0}
+											style={{ cursor: 'pointer' }}
+											onClick={() => setFilterType(isActive ? null : ext)}
+										>
+											{count} {ext.toUpperCase()}
+										</Badge>
+									);
+								})}
+								{filterType && (
+									<Badge
+										mode="outline"
+										fontSize={0}
+										style={{ cursor: 'pointer' }}
+										onClick={() => setFilterType(null)}
+									>
+										Clear filter
+									</Badge>
+								)}
+							</Flex>
+						</Flex>
 						<Button
 							mode="bleed"
 							tone="default"
@@ -185,43 +198,72 @@ export default function UploadStep1Settings({ settings, onStartProcessing }) {
 							onClick={() => setPendingFiles([])}
 						/>
 					</Flex>
-					<Stack space={2} style={{ maxHeight: 300, overflowY: 'auto' }}>
-						{sortFilesByType(pendingFiles).map((file, i) => {
-							const ext = file.name.split('.').pop().toUpperCase();
-							return (
-								<Card key={`${file.name}-${file.size}-${i}`} border radius={1} paddingX={2} paddingY={2}>
-									<Flex justify="space-between" align="center" gap={2}>
-										<Flex gap={3} align="center" style={{ flex: 1, minWidth: 0 }}>
-											<Text size={0} style={{ fontFamily: 'monospace', minWidth: '2.5rem', flexShrink: 0 }}>
-												{ext}
-											</Text>
-											<Box style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-												<Text size={1}>{file.name}</Text>
-											</Box>
-										</Flex>
+
+					{/* File table */}
+					<Box style={{ maxHeight: 350, overflowY: 'auto' }}>
+						{/* Table header */}
+						<Flex
+							align="center"
+							gap={2}
+							paddingX={2}
+							paddingY={1}
+							style={{ borderBottom: '1px solid var(--card-border-color)' }}
+						>
+							<Text size={0} weight="semibold" muted style={{ width: 56, flexShrink: 0 }}>Type</Text>
+							<Text size={0} weight="semibold" muted style={{ flex: 1 }}>File Name</Text>
+							<Box style={{ width: 32 }} />
+						</Flex>
+						<Stack space={0}>
+							{displayedFiles.map((file, i) => {
+								const ext = file.name.split('.').pop().toLowerCase();
+								return (
+									<Flex
+										key={`${file.name}-${file.size}-${i}`}
+										align="center"
+										gap={2}
+										paddingX={2}
+										paddingY={2}
+										style={{
+											borderBottom: '1px solid var(--card-border-color)',
+										}}
+									>
+										<Badge
+											tone="primary"
+											mode="outline"
+											fontSize={0}
+											style={{ width: 56, flexShrink: 0, textAlign: 'center' }}
+										>
+											{ext.toUpperCase()}
+										</Badge>
+										<Text size={1} style={{ flex: 1, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+											{file.name}
+										</Text>
 										<Button
 											mode="bleed"
 											tone="critical"
 											icon={TrashIcon}
-											padding={2}
+											padding={1}
 											onClick={() => handleRemoveFile(file)}
+											style={{ flexShrink: 0 }}
 										/>
 									</Flex>
-								</Card>
-							);
-						})}
-					</Stack>
+								);
+							})}
+						</Stack>
+					</Box>
 				</Stack>
 			)}
 
 			{/* Process button */}
 			{pendingFiles.length > 0 && (
 				<Button
-					mode="ghost"
+					mode="default"
 					tone="primary"
 					icon={UploadIcon}
 					text={`Process ${pendingFiles.length} File${pendingFiles.length === 1 ? '' : 's'}`}
 					style={{ width: '100%' }}
+					fontSize={2}
+					padding={4}
 					onClick={handleProcess}
 				/>
 			)}
